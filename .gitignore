@@ -1,0 +1,39 @@
+# Virtual environment
+venv/
+.venv/
+env/
+bin/
+etc/
+include/
+lib/
+pyvenv.cfg
+share/
+
+# Env variables
+.env
+.env.local
+
+# DB dumps
+*.sql
+*.sql.gz
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyc
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# OS Files
+.DS_Store
+Thumbs.db
+
+# streamlit
+.streamlit/secrets.toml
+
+# Debug
+dbutils/debug/
