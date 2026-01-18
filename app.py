@@ -238,9 +238,42 @@ def get_map_data(filters, latest_only=False):
 
 @st.cache_data(ttl=3600)
 def get_latest_median_price(filters):
-    """Get median price for the latest year in the selected range."""
+    """Get median price for the latest quarter (last data point) in the selected range."""
+    year_start = filters.get('year_range', [2005, 2025])[0]
     year_end = filters.get('year_range', [2005, 2025])[1]
 
+    # First, find the latest quarter with data in the range
+    latest_query = """
+        SELECT t.transaction_year, t.transaction_quarter
+        FROM transactions t
+        WHERE t.unit_price IS NOT NULL
+          AND t.unit_price > 0
+          AND t.transaction_year BETWEEN %s AND %s
+    """
+    latest_params = [year_start, year_end]
+
+    if filters.get('prefecture_code'):
+        latest_query = latest_query.replace("WHERE", "WHERE t.prefecture_code = %s AND")
+        latest_params.insert(0, filters['prefecture_code'])
+
+    if filters.get('municipality_codes'):
+        latest_query += " AND t.municipality_code = ANY(%s)"
+        latest_params.append(filters['municipality_codes'])
+
+    if filters.get('property_types'):
+        latest_query += " AND t.property_type_raw = ANY(%s)"
+        latest_params.append(filters['property_types'])
+
+    latest_query += " ORDER BY t.transaction_year DESC, t.transaction_quarter DESC LIMIT 1"
+
+    latest_result = run_query(latest_query, latest_params)
+    if latest_result.empty:
+        return None, None
+
+    latest_year = int(latest_result['transaction_year'].iloc[0])
+    latest_quarter = int(latest_result['transaction_quarter'].iloc[0])
+
+    # Now get the median for that specific quarter
     query = """
         SELECT
             PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY t.unit_price) as median
@@ -249,8 +282,9 @@ def get_latest_median_price(filters):
           AND t.unit_price > 0
           AND t.unit_price < 50000000
           AND t.transaction_year = %s
+          AND t.transaction_quarter = %s
     """
-    params = [year_end]
+    params = [latest_year, latest_quarter]
 
     if filters.get('prefecture_code'):
         query = query.replace("WHERE", "WHERE t.prefecture_code = %s AND")
@@ -266,8 +300,8 @@ def get_latest_median_price(filters):
 
     result = run_query(query, params)
     if not result.empty and result['median'].iloc[0]:
-        return float(result['median'].iloc[0])
-    return None
+        return float(result['median'].iloc[0]), f"{latest_year} Q{latest_quarter}"
+    return None, None
 
 # =============================================================================
 # CURRENCY CONVERSION (FX rates from database)
@@ -839,16 +873,17 @@ median_query, median_params = build_query(
 median_result = run_query(median_query, median_params)
 median_price = median_result['median'].iloc[0] if not median_result.empty and median_result['median'].iloc[0] else 0
 
-# Latest median (most recent year only)
-latest_median_price = get_latest_median_price(filters)
+# Latest median (most recent quarter - last data point)
+latest_median_price, latest_period = get_latest_median_price(filters)
 if latest_median_price is None:
     latest_median_price = median_price  # Fallback to period median
+    latest_period = f"{year_range[1]}"
 
 col1.metric("Matching Transactions", f"{transaction_count:,}")
 col2.metric(
-    f"Latest Median ({year_range[1]})",
+    f"Latest Median ({latest_period})",
     format_price(latest_median_price, is_unit_price=True),
-    help=f"Median price per {get_unit_label()} for {year_range[1]} only"
+    help=f"Median price per {get_unit_label()} for {latest_period} (last data point)"
 )
 col3.metric(
     f"Period Median ({year_range[0]}-{year_range[1]})",
