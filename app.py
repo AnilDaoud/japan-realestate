@@ -264,6 +264,14 @@ def get_latest_median_price(filters):
         latest_query += " AND t.property_type_raw = ANY(%s)"
         latest_params.append(filters['property_types'])
 
+    if filters.get('districts'):
+        latest_query += " AND t.district_name = ANY(%s)"
+        latest_params.append(filters['districts'])
+
+    if filters.get('station_codes'):
+        latest_query += " AND t.nearest_station_code = ANY(%s)"
+        latest_params.append(filters['station_codes'])
+
     latest_query += " ORDER BY t.transaction_year DESC, t.transaction_quarter DESC LIMIT 1"
 
     latest_result = run_query(latest_query, latest_params)
@@ -297,6 +305,14 @@ def get_latest_median_price(filters):
     if filters.get('property_types'):
         query += " AND t.property_type_raw = ANY(%s)"
         params.append(filters['property_types'])
+
+    if filters.get('districts'):
+        query += " AND t.district_name = ANY(%s)"
+        params.append(filters['districts'])
+
+    if filters.get('station_codes'):
+        query += " AND t.nearest_station_code = ANY(%s)"
+        params.append(filters['station_codes'])
 
     result = run_query(query, params)
     if not result.empty and result['median'].iloc[0]:
