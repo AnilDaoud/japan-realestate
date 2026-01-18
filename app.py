@@ -316,8 +316,8 @@ def get_latest_median_price(filters):
 
     result = run_query(query, params)
     if not result.empty and result['median'].iloc[0]:
-        return float(result['median'].iloc[0]), f"{latest_year} Q{latest_quarter}"
-    return None, None
+        return float(result['median'].iloc[0]), f"{latest_year} Q{latest_quarter}", latest_year, latest_quarter
+    return None, None, None, None
 
 # =============================================================================
 # CURRENCY CONVERSION (FX rates from database)
@@ -890,15 +890,17 @@ median_result = run_query(median_query, median_params)
 median_price = median_result['median'].iloc[0] if not median_result.empty and median_result['median'].iloc[0] else 0
 
 # Latest median (most recent quarter - last data point)
-latest_median_price, latest_period = get_latest_median_price(filters)
+latest_median_price, latest_period, latest_year, latest_quarter = get_latest_median_price(filters)
 if latest_median_price is None:
     latest_median_price = median_price  # Fallback to period median
     latest_period = f"{year_range[1]}"
+    latest_year = year_range[1]
+    latest_quarter = 4  # Default to Q4
 
 col1.metric("Matching Transactions", f"{transaction_count:,}")
 col2.metric(
     f"Latest Median ({latest_period})",
-    format_price(latest_median_price, is_unit_price=True),
+    format_price(latest_median_price, year=latest_year, quarter=latest_quarter, is_unit_price=True),
     help=f"Median price per {get_unit_label()} for {latest_period} (last data point)"
 )
 col3.metric(
