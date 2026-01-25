@@ -49,7 +49,7 @@ TSUBO_TO_M2 = 3.30579
 M2_TO_TSUBO = 1 / TSUBO_TO_M2
 
 
-def generate_share_url(filters, tab_name, base_url=None):
+def generate_share_url(filters, tab_name, display_options=None, base_url=None):
     """Generate a shareable URL with all current filter values."""
     params = {"tab": tab_name}
 
@@ -70,6 +70,15 @@ def generate_share_url(filters, tab_name, base_url=None):
         params['area'] = f"{filters['area_range'][0]}-{filters['area_range'][1]}"
     if filters.get('price_range'):
         params['price'] = f"{filters['price_range'][0]}-{filters['price_range'][1]}"
+
+    # Add display options
+    if display_options:
+        if display_options.get('currency') and display_options['currency'] != 'JPY':
+            params['cur'] = display_options['currency']
+        if display_options.get('use_tsubo'):
+            params['tsubo'] = '1'
+        if display_options.get('cohort_type'):
+            params['cohort'] = display_options['cohort_type']
 
     query_string = urlencode(params)
     if base_url:
@@ -813,10 +822,17 @@ else:
 st.sidebar.header("🔄 Display Options")
 
 # Price unit toggle (m² vs tsubo)
+# Get display options from URL params
+url_params = st.query_params
+url_tsubo = url_params.get("tsubo", "0") == "1"
+url_currency = url_params.get("cur", "JPY")
+currency_options = ["JPY", "USD", "EUR", "GBP"]
+url_currency_idx = currency_options.index(url_currency) if url_currency in currency_options else 0
+
 price_unit = st.sidebar.radio(
     "Price Unit",
     options=["per m²", "per tsubo"],
-    index=0,
+    index=1 if url_tsubo else 0,
     horizontal=True,
     help=TOOLTIPS["tsubo"]
 )
@@ -825,8 +841,8 @@ use_tsubo = price_unit == "per tsubo"
 # Currency toggle
 currency = st.sidebar.radio(
     "Currency",
-    options=["JPY", "USD", "EUR", "GBP"],
-    index=0,
+    options=currency_options,
+    index=url_currency_idx,
     horizontal=True
 )
 use_fx = currency != "JPY"
@@ -1253,24 +1269,73 @@ col3.metric(
 col4.metric("Prefecture", selected_prefecture_name)
 
 # Share button
-share_url = generate_share_url(filters, TAB_NAMES[get_current_tab()])
+display_options = {
+    'currency': currency,
+    'use_tsubo': use_tsubo,
+    'cohort_type': st.session_state.get('cohort_type', 'Building Age'),
+}
+share_query = generate_share_url(filters, TAB_NAMES[get_current_tab()], display_options)
+
 share_col1, share_col2 = st.columns([6, 1])
 with share_col2:
     if st.button("🔗 Share View", help="Copy a link to this view with your current filters"):
         st.session_state['show_share_url'] = True
 
 if st.session_state.get('show_share_url'):
-    st.info(f"**Share this view:** Copy the URL below\n\n`{share_url}`\n\n*(Append this to your app's base URL)*")
+    import streamlit.components.v1 as components
+
+    # Use JavaScript to get the actual base URL and construct full share URL
+    share_js = f"""
+    <div id="share-container" style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
+        <div style="background: #d4edda; border: 1px solid #c3e6cb; border-radius: 4px; padding: 12px; margin-bottom: 10px;">
+            <strong>Share URL</strong> <span id="copy-status" style="margin-left: 10px; color: #155724;"></span>
+        </div>
+        <div style="display: flex; gap: 8px; align-items: center;">
+            <input type="text" id="share-url" readonly
+                   style="flex: 1; padding: 10px; font-family: monospace; font-size: 13px; border: 1px solid #ccc; border-radius: 4px; background: #f8f9fa;" />
+            <button id="copy-btn" onclick="copyUrl()"
+                    style="padding: 10px 16px; background: #0066cc; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 14px;">
+                📋 Copy
+            </button>
+        </div>
+    </div>
+    <script>
+        // Get base URL from parent window
+        const baseUrl = window.parent.location.origin + window.parent.location.pathname;
+        const queryString = '{share_query}';
+        const fullUrl = baseUrl + queryString;
+
+        // Set the URL in the input field
+        document.getElementById('share-url').value = fullUrl;
+
+        function copyUrl() {{
+            const urlInput = document.getElementById('share-url');
+            urlInput.select();
+            urlInput.setSelectionRange(0, 99999);
+
+            navigator.clipboard.writeText(fullUrl).then(function() {{
+                document.getElementById('copy-status').innerHTML = '✅ Copied!';
+                document.getElementById('copy-btn').innerHTML = '✅ Copied';
+                setTimeout(function() {{
+                    document.getElementById('copy-status').innerHTML = '';
+                    document.getElementById('copy-btn').innerHTML = '📋 Copy';
+                }}, 2000);
+            }}).catch(function(err) {{
+                // Fallback for older browsers
+                document.execCommand('copy');
+                document.getElementById('copy-status').innerHTML = '✅ Copied!';
+            }});
+        }}
+    </script>
+    """
+    components.html(share_js, height=100)
+
     if st.button("✕ Close"):
         st.session_state['show_share_url'] = False
         st.rerun()
 
 # Tab navigation with state preservation
 current_tab_idx = get_current_tab()
-
-# Initialize session state for tab if needed
-if "main_nav" not in st.session_state:
-    st.session_state.main_nav = TAB_LABELS[current_tab_idx]
 
 # Use radio buttons styled as tabs for state preservation
 selected_tab = st.radio(
@@ -1279,8 +1344,8 @@ selected_tab = st.radio(
     index=current_tab_idx,
     horizontal=True,
     label_visibility="collapsed",
-    key="main_nav",
-    on_change=on_tab_change
+    on_change=on_tab_change,
+    key="main_nav"
 )
 
 st.divider()
@@ -1564,10 +1629,15 @@ elif selected_tab == "📊 Cohorts":
     st.subheader("Cohort Analysis")
     st.caption("Compare price trends across different market segments over time")
 
-    # Cohort type selector
+    # Cohort type selector - get default from URL params
+    cohort_options = ["Building Age", "Property Size", "Total Price"]
+    url_cohort = st.query_params.get("cohort", "Building Age")
+    url_cohort_idx = cohort_options.index(url_cohort) if url_cohort in cohort_options else 0
+
     cohort_type = st.radio(
         "Cohort Type",
-        options=["Building Age", "Property Size", "Total Price"],
+        options=cohort_options,
+        index=url_cohort_idx,
         horizontal=True,
         key="cohort_type",
         help="Choose how to segment the market for comparison"
