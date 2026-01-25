@@ -188,8 +188,8 @@ st.set_page_config(
 )
 
 # Tab state management via query params
-TAB_NAMES = ["charts", "map", "cohorts", "valuation", "data"]
-TAB_LABELS = ["📈 Charts", "🗺️ Map", "📅 Age Cohorts", "💰 Valuation", "📋 Raw Data"]
+TAB_NAMES = ["charts", "map", "cohorts", "micro", "valuation", "data"]
+TAB_LABELS = ["📈 Charts", "🗺️ Map", "📅 Age Cohorts", "📍 District", "💰 Valuation", "📋 Raw Data"]
 
 def get_current_tab():
     """Get current tab from query params, default to first tab."""
@@ -1020,6 +1020,193 @@ def get_age_vs_price_by_area(filters):
 
     return run_query(query, params)
 
+
+def get_station_price_trends(prefecture_code, station_codes, filters, frequency='Quarterly'):
+    """Get price trends grouped by station."""
+    if not station_codes:
+        return pd.DataFrame()
+
+    year_start = filters.get('year_range', [2005, 2025])[0]
+    year_end = filters.get('year_range', [2005, 2025])[1]
+
+    if frequency == 'Yearly':
+        select = """
+            s.code as station_code,
+            COALESCE(s.name_en, s.name_ja) as station_name,
+            t.transaction_year,
+            COUNT(*) as transaction_count,
+            ROUND(AVG(t.unit_price)) as avg_price_m2,
+            PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY t.unit_price) as median_price_m2
+        """
+        group_by = "s.code, s.name_en, s.name_ja, t.transaction_year"
+        order_by = "t.transaction_year, station_name"
+    else:
+        select = """
+            s.code as station_code,
+            COALESCE(s.name_en, s.name_ja) as station_name,
+            t.transaction_year,
+            t.transaction_quarter,
+            COUNT(*) as transaction_count,
+            ROUND(AVG(t.unit_price)) as avg_price_m2,
+            PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY t.unit_price) as median_price_m2
+        """
+        group_by = "s.code, s.name_en, s.name_ja, t.transaction_year, t.transaction_quarter"
+        order_by = "t.transaction_year, t.transaction_quarter, station_name"
+
+    query = f"""
+        SELECT {select}
+        FROM transactions t
+        JOIN stations s ON t.nearest_station_code = s.code
+        WHERE t.prefecture_code = %s
+          AND t.nearest_station_code = ANY(%s)
+          AND t.unit_price IS NOT NULL
+          AND t.unit_price > 0
+          AND t.unit_price < 50000000
+          AND t.transaction_year BETWEEN %s AND %s
+    """
+    params = [prefecture_code, station_codes, year_start, year_end]
+
+    if filters.get('property_types'):
+        query += " AND t.property_type_raw = ANY(%s)"
+        params.append(filters['property_types'])
+
+    query += f" GROUP BY {group_by} HAVING COUNT(*) >= 3"
+    query += f" ORDER BY {order_by}"
+
+    return run_query(query, params)
+
+
+def get_district_price_trends(prefecture_code, municipality_codes, districts, filters, frequency='Quarterly'):
+    """Get price trends grouped by district."""
+    if not districts:
+        return pd.DataFrame()
+
+    year_start = filters.get('year_range', [2005, 2025])[0]
+    year_end = filters.get('year_range', [2005, 2025])[1]
+
+    if frequency == 'Yearly':
+        select = """
+            t.district_name,
+            t.transaction_year,
+            COUNT(*) as transaction_count,
+            ROUND(AVG(t.unit_price)) as avg_price_m2,
+            PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY t.unit_price) as median_price_m2
+        """
+        group_by = "t.district_name, t.transaction_year"
+        order_by = "t.transaction_year, t.district_name"
+    else:
+        select = """
+            t.district_name,
+            t.transaction_year,
+            t.transaction_quarter,
+            COUNT(*) as transaction_count,
+            ROUND(AVG(t.unit_price)) as avg_price_m2,
+            PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY t.unit_price) as median_price_m2
+        """
+        group_by = "t.district_name, t.transaction_year, t.transaction_quarter"
+        order_by = "t.transaction_year, t.transaction_quarter, t.district_name"
+
+    query = f"""
+        SELECT {select}
+        FROM transactions t
+        WHERE t.prefecture_code = %s
+          AND t.district_name = ANY(%s)
+          AND t.unit_price IS NOT NULL
+          AND t.unit_price > 0
+          AND t.unit_price < 50000000
+          AND t.transaction_year BETWEEN %s AND %s
+    """
+    params = [prefecture_code, districts, year_start, year_end]
+
+    if municipality_codes:
+        query += " AND t.municipality_code = ANY(%s)"
+        params.append(municipality_codes)
+
+    if filters.get('property_types'):
+        query += " AND t.property_type_raw = ANY(%s)"
+        params.append(filters['property_types'])
+
+    query += f" GROUP BY {group_by} HAVING COUNT(*) >= 3"
+    query += f" ORDER BY {order_by}"
+
+    return run_query(query, params)
+
+
+def get_station_rankings(prefecture_code, filters, limit=50):
+    """Get stations ranked by median price."""
+    year_start = filters.get('year_range', [2005, 2025])[0]
+    year_end = filters.get('year_range', [2005, 2025])[1]
+
+    query = """
+        SELECT
+            s.code as station_code,
+            COALESCE(s.name_en, s.name_ja) as station_name,
+            COUNT(*) as transaction_count,
+            ROUND(AVG(t.unit_price)) as avg_price_m2,
+            PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY t.unit_price)::INTEGER as median_price_m2
+        FROM transactions t
+        JOIN stations s ON t.nearest_station_code = s.code
+        WHERE t.prefecture_code = %s
+          AND t.unit_price IS NOT NULL
+          AND t.unit_price > 0
+          AND t.unit_price < 50000000
+          AND t.transaction_year BETWEEN %s AND %s
+    """
+    params = [prefecture_code, year_start, year_end]
+
+    if filters.get('property_types'):
+        query += " AND t.property_type_raw = ANY(%s)"
+        params.append(filters['property_types'])
+
+    query += f"""
+        GROUP BY s.code, s.name_en, s.name_ja
+        HAVING COUNT(*) >= 10
+        ORDER BY median_price_m2 DESC
+        LIMIT {limit}
+    """
+
+    return run_query(query, params)
+
+
+def get_district_rankings(prefecture_code, municipality_codes, filters, limit=50):
+    """Get districts ranked by median price."""
+    year_start = filters.get('year_range', [2005, 2025])[0]
+    year_end = filters.get('year_range', [2005, 2025])[1]
+
+    query = """
+        SELECT
+            t.district_name,
+            COUNT(*) as transaction_count,
+            ROUND(AVG(t.unit_price)) as avg_price_m2,
+            PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY t.unit_price)::INTEGER as median_price_m2
+        FROM transactions t
+        WHERE t.prefecture_code = %s
+          AND t.district_name IS NOT NULL
+          AND t.district_name != ''
+          AND t.unit_price IS NOT NULL
+          AND t.unit_price > 0
+          AND t.unit_price < 50000000
+          AND t.transaction_year BETWEEN %s AND %s
+    """
+    params = [prefecture_code, year_start, year_end]
+
+    if municipality_codes:
+        query += " AND t.municipality_code = ANY(%s)"
+        params.append(municipality_codes)
+
+    if filters.get('property_types'):
+        query += " AND t.property_type_raw = ANY(%s)"
+        params.append(filters['property_types'])
+
+    query += f"""
+        GROUP BY t.district_name
+        HAVING COUNT(*) >= 5
+        ORDER BY median_price_m2 DESC
+        LIMIT {limit}
+    """
+
+    return run_query(query, params)
+
 # =============================================================================
 # MAIN UI
 # =============================================================================
@@ -1511,6 +1698,181 @@ elif selected_tab == "📅 Age Cohorts":
             st.warning("No condominium data available for the selected filters.")
     else:
         st.info("👈 Select age cohorts to compare (e.g., 10yr, 20yr, 30yr)")
+
+# ============= DISTRICT TAB =============
+elif selected_tab == "📍 District":
+    st.subheader("District Analysis")
+    st.caption("Analyze price trends at the micro-market level by district/chome")
+
+    micro_col1, micro_col2 = st.columns([1, 2])
+
+    with micro_col1:
+        st.markdown("##### Select Districts to Compare")
+
+        # Get available districts
+        if selected_municipality_codes:
+            available_districts = get_districts(selected_municipality_codes)
+        elif has_municipality_data:
+            st.info("Select a Ward/City in the sidebar to see districts")
+            available_districts = pd.DataFrame()
+        else:
+            available_districts = get_districts_by_prefecture(selected_prefecture)
+
+        if not available_districts.empty:
+            # District multiselect
+            selected_micro_districts = st.multiselect(
+                "Districts",
+                options=available_districts['district_name'].tolist(),
+                max_selections=8,
+                help=TOOLTIPS["chome"] + " Select up to 8 to compare."
+            )
+        else:
+            selected_micro_districts = None
+
+        # Show district rankings
+        st.markdown("##### Top Districts by Price")
+        with st.spinner("Loading district rankings..."):
+            district_rankings = get_district_rankings(
+                selected_prefecture,
+                selected_municipality_codes,
+                filters
+            )
+
+        if not district_rankings.empty:
+            def convert_ranking_price(price):
+                if price is None:
+                    return None
+                result = float(price)
+                if use_fx and current_fx_rate:
+                    result = result * current_fx_rate
+                if use_tsubo:
+                    result = convert_to_tsubo(result)
+                return result
+
+            district_rankings['display_median'] = district_rankings['median_price_m2'].apply(convert_ranking_price)
+
+            display_rankings = district_rankings[['district_name', 'display_median', 'transaction_count']].head(15)
+            display_rankings.columns = ['District', get_unit_label(), 'Transactions']
+
+            st.dataframe(
+                display_rankings.style.format({
+                    get_unit_label(): '{:,.0f}',
+                    'Transactions': '{:,}'
+                }),
+                height=400,
+                width="stretch"
+            )
+
+    with micro_col2:
+        unit_label = get_unit_label()
+
+        if selected_micro_districts and len(selected_micro_districts) > 0:
+            st.markdown(f"##### Price Trends by District ({unit_label})")
+
+            with st.spinner("Loading district price trends..."):
+                district_trends = get_district_price_trends(
+                    selected_prefecture,
+                    selected_municipality_codes,
+                    selected_micro_districts,
+                    filters,
+                    frequency
+                )
+
+            if not district_trends.empty:
+                # Create period column
+                if frequency == 'Yearly':
+                    district_trends['period'] = district_trends['transaction_year'].astype(str)
+                    district_trends['quarter'] = 2
+                else:
+                    district_trends['period'] = district_trends['transaction_year'].astype(str) + ' Q' + district_trends['transaction_quarter'].astype(str)
+                    district_trends['quarter'] = district_trends['transaction_quarter']
+
+                # Apply conversions
+                def apply_district_conversions(row):
+                    price = float(row['median_price_m2'])
+                    year = int(row['transaction_year'])
+                    quarter = int(row['quarter'])
+
+                    if use_fx and (year, quarter) in fx_rates:
+                        price = price * fx_rates[(year, quarter)]
+                    elif use_fx and current_fx_rate:
+                        price = price * current_fx_rate
+
+                    if use_tsubo:
+                        price = convert_to_tsubo(price)
+
+                    return price
+
+                district_trends['display_median'] = district_trends.apply(apply_district_conversions, axis=1)
+
+                # Line chart
+                fig = px.line(
+                    district_trends,
+                    x='period',
+                    y='display_median',
+                    color='district_name',
+                    markers=True,
+                    title=f'Median Price Trends by District',
+                    labels={'display_median': unit_label, 'period': 'Period', 'district_name': 'District'}
+                )
+                fig.update_layout(
+                    yaxis_tickformat=',',
+                    height=450,
+                    hovermode='x unified'
+                )
+                st.plotly_chart(fig, width="stretch")
+
+                # Transaction volume chart
+                st.markdown("##### Transaction Volume by District")
+                fig2 = px.bar(
+                    district_trends,
+                    x='period',
+                    y='transaction_count',
+                    color='district_name',
+                    title='Transaction Volume',
+                    labels={'transaction_count': 'Transactions', 'period': 'Period', 'district_name': 'District'}
+                )
+                fig2.update_layout(height=300, barmode='group')
+                st.plotly_chart(fig2, width="stretch")
+
+                # Summary stats
+                st.markdown("##### Summary Statistics")
+                summary = district_trends.groupby('district_name').agg(
+                    avg_median=('display_median', 'mean'),
+                    total_transactions=('transaction_count', 'sum')
+                ).reset_index()
+                summary.columns = ['District', f'Avg Median ({unit_label})', 'Total Transactions']
+                st.dataframe(
+                    summary.style.format({
+                        f'Avg Median ({unit_label})': '{:,.0f}',
+                        'Total Transactions': '{:,}'
+                    }),
+                    width="stretch"
+                )
+            else:
+                st.warning("No data available for the selected districts. Try different districts or adjust filters.")
+        else:
+            st.info("👈 Select districts from the list to see price trends")
+
+            # Show overall district comparison as a bar chart
+            if 'district_rankings' in dir() and not district_rankings.empty:
+                st.markdown(f"##### District Price Comparison ({unit_label})")
+                fig = px.bar(
+                    district_rankings.head(20),
+                    x='district_name',
+                    y='display_median',
+                    color='display_median',
+                    color_continuous_scale='RdYlGn_r',
+                    title='Top 20 Districts by Median Price',
+                    labels={'display_median': unit_label, 'district_name': 'District'}
+                )
+                fig.update_layout(
+                    xaxis_tickangle=-45,
+                    yaxis_tickformat=',',
+                    height=450,
+                    showlegend=False
+                )
+                st.plotly_chart(fig, width="stretch")
 
 # ============= VALUATION TAB =============
 elif selected_tab == "💰 Valuation":
