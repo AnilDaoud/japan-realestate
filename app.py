@@ -189,7 +189,7 @@ st.set_page_config(
 
 # Tab state management via query params
 TAB_NAMES = ["charts", "map", "cohorts", "micro", "valuation", "data"]
-TAB_LABELS = ["📈 Charts", "🗺️ Map", "📅 Age Cohorts", "📍 District", "💰 Valuation", "📋 Raw Data"]
+TAB_LABELS = ["📈 Charts", "🗺️ Map", "📊 Cohorts", "📍 District", "💰 Valuation", "📋 Raw Data"]
 
 def get_current_tab():
     """Get current tab from query params, default to first tab."""
@@ -1559,44 +1559,112 @@ elif selected_tab == "🗺️ Map":
     else:
         st.warning("No data available for selected filters")
 
-# ============= AGE COHORTS TAB =============
-elif selected_tab == "📅 Age Cohorts":
-    st.subheader("Price Trends by Building Age Cohort")
-    st.caption("Track how prices evolve for apartments of different ages over time (sliding age buckets)")
+# ============= COHORTS TAB =============
+elif selected_tab == "📊 Cohorts":
+    st.subheader("Cohort Analysis")
+    st.caption("Compare price trends across different market segments over time")
 
-    # Age cohort options
-    cohort_col1, cohort_col2 = st.columns([1, 3])
+    # Cohort type selector
+    cohort_type = st.radio(
+        "Cohort Type",
+        options=["Building Age", "Property Size", "Total Price"],
+        horizontal=True,
+        key="cohort_type",
+        help="Choose how to segment the market for comparison"
+    )
 
-    with cohort_col1:
-        age_buckets = st.multiselect(
+    # Cohort options based on type
+    if cohort_type == "Building Age":
+        selected_cohorts = st.multiselect(
             "Age Cohorts (years)",
-            options=[5, 10, 15, 20, 25, 30, 35, 40],
+            options=[5, 10, 15, 20, 25, 30, 35, 40, 50],
             default=[10, 20, 30],
             help="Select building ages to compare. Each cohort shows apartments that were X years old at the time of transaction."
         )
+        cohort_field = "building_age"
+        cohort_label = "Building Age"
 
-    if age_buckets:
-        # Query for age cohort data with sliding buckets
-        cohort_query = """
-            SELECT
-                t.transaction_year,
-                t.transaction_quarter,
-                (t.transaction_year - t.building_year) as building_age,
-                t.unit_price
-            FROM transactions t
-            WHERE t.prefecture_code = %s
-              AND t.unit_price IS NOT NULL
-              AND t.unit_price > 0
-              AND t.unit_price < 50000000
-              AND t.building_year IS NOT NULL
-              AND t.transaction_year BETWEEN %s AND %s
-              AND t.property_type_raw = 'Pre-owned Condominiums, etc.'
-        """
+    elif cohort_type == "Property Size":
+        size_options = {
+            "Compact (<30m²)": (0, 30),
+            "Small (30-50m²)": (30, 50),
+            "Medium (50-70m²)": (50, 70),
+            "Large (70-100m²)": (70, 100),
+            "XL (100m²+)": (100, 9999),
+        }
+        selected_cohort_names = st.multiselect(
+            "Size Cohorts",
+            options=list(size_options.keys()),
+            default=list(size_options.keys()),
+            help="Select property size ranges to compare"
+        )
+        selected_cohorts = [size_options[name] for name in selected_cohort_names]
+        cohort_field = "area_m2"
+        cohort_label = "Size"
+
+    else:  # Total Price
+        price_options = {
+            "Entry (<30M¥)": (0, 30),
+            "Affordable (30-50M¥)": (30, 50),
+            "Mid-range (50-80M¥)": (50, 80),
+            "Upper (80-120M¥)": (80, 120),
+            "Premium (120-200M¥)": (120, 200),
+            "Luxury (200M¥+)": (200, 9999),
+        }
+        selected_cohort_names = st.multiselect(
+            "Price Cohorts",
+            options=list(price_options.keys()),
+            default=list(price_options.keys()),
+            help="Select total price ranges to compare (in millions of yen)"
+        )
+        selected_cohorts = [price_options[name] for name in selected_cohort_names]
+        cohort_field = "trade_price"
+        cohort_label = "Price Range"
+
+    if selected_cohorts:
+        # Build query based on cohort type
+        if cohort_type == "Building Age":
+            cohort_query = """
+                SELECT
+                    t.transaction_year,
+                    t.transaction_quarter,
+                    (t.transaction_year - t.building_year) as building_age,
+                    t.unit_price,
+                    t.trade_price,
+                    t.area_m2
+                FROM transactions t
+                WHERE t.prefecture_code = %s
+                  AND t.unit_price IS NOT NULL
+                  AND t.unit_price > 0
+                  AND t.unit_price < 50000000
+                  AND t.building_year IS NOT NULL
+                  AND t.transaction_year BETWEEN %s AND %s
+            """
+        else:
+            cohort_query = """
+                SELECT
+                    t.transaction_year,
+                    t.transaction_quarter,
+                    t.unit_price,
+                    t.trade_price,
+                    t.area_m2
+                FROM transactions t
+                WHERE t.prefecture_code = %s
+                  AND t.unit_price IS NOT NULL
+                  AND t.unit_price > 0
+                  AND t.unit_price < 50000000
+                  AND t.transaction_year BETWEEN %s AND %s
+            """
+
         cohort_params = [selected_prefecture, year_range[0], year_range[1]]
 
         if selected_municipality_codes:
             cohort_query += " AND t.municipality_code = ANY(%s)"
             cohort_params.append(selected_municipality_codes)
+
+        if filters.get('property_types'):
+            cohort_query += " AND t.property_type_raw = ANY(%s)"
+            cohort_params.append(filters['property_types'])
 
         with st.spinner("Loading cohort data..."):
             cohort_data = run_query(cohort_query, cohort_params)
@@ -1605,25 +1673,44 @@ elif selected_tab == "📅 Age Cohorts":
             # Create period column
             cohort_data['period'] = cohort_data['transaction_year'].astype(str) + ' Q' + cohort_data['transaction_quarter'].astype(str)
 
-            # Assign each transaction to an age bucket (±2 years tolerance)
-            def assign_bucket(age, buckets):
-                for bucket in sorted(buckets):
-                    if abs(age - bucket) <= 2:
-                        return f"{bucket}yr"
-                return None
+            # Assign cohort based on type
+            if cohort_type == "Building Age":
+                def assign_age_bucket(age, buckets):
+                    for bucket in sorted(buckets):
+                        if abs(age - bucket) <= 2:
+                            return f"{bucket}yr"
+                    return None
+                cohort_data['cohort'] = cohort_data['building_age'].apply(lambda x: assign_age_bucket(x, selected_cohorts))
 
-            cohort_data['age_bucket'] = cohort_data['building_age'].apply(lambda x: assign_bucket(x, age_buckets))
-            cohort_data = cohort_data[cohort_data['age_bucket'].notna()]
+            elif cohort_type == "Property Size":
+                def assign_size_bucket(area):
+                    for name, (low, high) in zip(selected_cohort_names, selected_cohorts):
+                        if low <= area < high:
+                            return name
+                    return None
+                cohort_data['cohort'] = cohort_data['area_m2'].apply(assign_size_bucket)
+
+            else:  # Total Price
+                def assign_price_bucket(price):
+                    price_m = price / 1_000_000  # Convert to millions
+                    for name, (low, high) in zip(selected_cohort_names, selected_cohorts):
+                        if low <= price_m < high:
+                            return name
+                    return None
+                cohort_data['cohort'] = cohort_data['trade_price'].apply(assign_price_bucket)
+
+            cohort_data = cohort_data[cohort_data['cohort'].notna()]
 
             if not cohort_data.empty:
-                # Aggregate by period and age bucket
-                agg_data = cohort_data.groupby(['transaction_year', 'transaction_quarter', 'age_bucket']).agg(
+                # Aggregate by period and cohort
+                agg_data = cohort_data.groupby(['transaction_year', 'transaction_quarter', 'cohort']).agg(
                     median_price=('unit_price', 'median'),
+                    avg_price=('unit_price', 'mean'),
                     count=('unit_price', 'count')
                 ).reset_index()
                 agg_data['period'] = agg_data['transaction_year'].astype(str) + ' Q' + agg_data['transaction_quarter'].astype(str)
 
-                # Filter to buckets with enough data
+                # Filter to cohorts with enough data
                 agg_data = agg_data[agg_data['count'] >= 5]
 
                 if not agg_data.empty:
@@ -1635,69 +1722,143 @@ elif selected_tab == "📅 Age Cohorts":
                         year = int(row['transaction_year'])
                         quarter = int(row['transaction_quarter'])
 
-                        # Apply FX conversion with historical rate
                         if use_fx and (year, quarter) in fx_rates:
                             price = price * fx_rates[(year, quarter)]
                         elif use_fx and current_fx_rate:
                             price = price * current_fx_rate
 
-                        # Apply tsubo conversion
                         if use_tsubo:
                             price = convert_to_tsubo(price)
 
                         return price
 
-                    agg_data['display_price'] = agg_data.apply(convert_cohort_price, axis=1)
+                    def convert_cohort_avg(row):
+                        price = float(row['avg_price'])
+                        year = int(row['transaction_year'])
+                        quarter = int(row['transaction_quarter'])
 
+                        if use_fx and (year, quarter) in fx_rates:
+                            price = price * fx_rates[(year, quarter)]
+                        elif use_fx and current_fx_rate:
+                            price = price * current_fx_rate
+
+                        if use_tsubo:
+                            price = convert_to_tsubo(price)
+
+                        return price
+
+                    agg_data['display_median'] = agg_data.apply(convert_cohort_price, axis=1)
+                    agg_data['display_avg'] = agg_data.apply(convert_cohort_avg, axis=1)
+
+                    # Median price chart
                     fig = px.line(
                         agg_data,
                         x='period',
-                        y='display_price',
-                        color='age_bucket',
-                        title=f'Median Price ({unit_label}) by Building Age Cohort',
-                        labels={'display_price': unit_label, 'period': 'Period', 'age_bucket': 'Building Age'},
+                        y='display_median',
+                        color='cohort',
+                        title=f'Median Price ({unit_label}) by {cohort_label} Cohort',
+                        labels={'display_median': f'Median {unit_label}', 'period': 'Period', 'cohort': cohort_label},
                         markers=True
                     )
                     fig.update_layout(
                         yaxis_tickformat=',',
-                        height=500,
+                        height=450,
                         hovermode='x unified'
                     )
                     st.plotly_chart(fig, width="stretch")
 
-                    # Show explanation
-                    st.info("""
-                    **How to read this chart:**
-                    Each line shows the median price for apartments that were X years old *at the time of sale*.
+                    # Average price chart (to compare with median)
+                    st.markdown("##### Average vs Median Comparison")
+                    st.caption("Diverging average and median can indicate market segmentation or outlier effects")
 
-                    For example, the "10yr" line shows:
-                    - In 2020: apartments built in 2010 (10 years old in 2020)
-                    - In 2023: apartments built in 2013 (10 years old in 2023)
+                    fig2 = px.line(
+                        agg_data,
+                        x='period',
+                        y='display_avg',
+                        color='cohort',
+                        title=f'Average Price ({unit_label}) by {cohort_label} Cohort',
+                        labels={'display_avg': f'Average {unit_label}', 'period': 'Period', 'cohort': cohort_label},
+                        markers=True,
+                        line_dash_sequence=['dash']
+                    )
+                    fig2.update_layout(
+                        yaxis_tickformat=',',
+                        height=400,
+                        hovermode='x unified'
+                    )
+                    st.plotly_chart(fig2, width="stretch")
 
-                    This "sliding age" approach lets you compare how the market values apartments of the same age across different time periods.
-                    """)
+                    # Transaction volume
+                    st.markdown("##### Transaction Volume by Cohort")
+                    fig3 = px.bar(
+                        agg_data,
+                        x='period',
+                        y='count',
+                        color='cohort',
+                        title='Transaction Volume',
+                        labels={'count': 'Transactions', 'period': 'Period', 'cohort': cohort_label}
+                    )
+                    fig3.update_layout(height=300, barmode='stack')
+                    st.plotly_chart(fig3, width="stretch")
 
-                    # Summary table with converted prices
-                    summary = agg_data.groupby('age_bucket').agg(
-                        avg_median=('display_price', 'mean'),
+                    # Explanation based on cohort type
+                    if cohort_type == "Building Age":
+                        st.info("""
+                        **How to read this chart:**
+                        Each line shows the median price for apartments that were X years old *at the time of sale*.
+
+                        For example, the "10yr" line shows:
+                        - In 2020: apartments built in 2010 (10 years old in 2020)
+                        - In 2023: apartments built in 2013 (10 years old in 2023)
+
+                        This "sliding age" approach lets you compare how the market values apartments of the same age across different time periods.
+                        """)
+                    elif cohort_type == "Property Size":
+                        st.info("""
+                        **How to read this chart:**
+                        Each line shows the median price/m² for properties within a size range.
+
+                        Comparing sizes helps identify:
+                        - Premium pricing for certain size segments
+                        - Market shifts toward larger or smaller units
+                        - Supply/demand imbalances by size
+                        """)
+                    else:  # Total Price
+                        st.info("""
+                        **How to read this chart:**
+                        Each line shows the median price/m² for transactions within a total price range.
+
+                        This helps identify:
+                        - Whether luxury segment is driving averages up while mainstream stagnates
+                        - Price compression or expansion between segments
+                        - Market bifurcation trends
+                        """)
+
+                    # Summary table
+                    summary = agg_data.groupby('cohort').agg(
+                        avg_median=('display_median', 'mean'),
+                        avg_average=('display_avg', 'mean'),
                         total_transactions=('count', 'sum')
                     ).reset_index()
-                    summary.columns = ['Age Cohort', f'Avg Median ({unit_label})', 'Total Transactions']
+                    summary['median_avg_gap'] = ((summary['avg_average'] - summary['avg_median']) / summary['avg_median'] * 100).round(1)
+                    summary.columns = [cohort_label, f'Avg Median ({unit_label})', f'Avg Mean ({unit_label})', 'Total Transactions', 'Mean-Median Gap %']
                     st.dataframe(
                         summary.style.format({
                             f'Avg Median ({unit_label})': '{:,.0f}',
-                            'Total Transactions': '{:,}'
+                            f'Avg Mean ({unit_label})': '{:,.0f}',
+                            'Total Transactions': '{:,}',
+                            'Mean-Median Gap %': '{:+.1f}%'
                         }),
                         width="stretch"
                     )
                 else:
-                    st.warning("Not enough data points for the selected age cohorts. Try selecting different ages or expanding the year range.")
+                    st.warning("Not enough data points for the selected cohorts. Try selecting different ranges or expanding the year range.")
             else:
-                st.warning("No transactions found matching the selected age cohorts.")
+                st.warning("No transactions found matching the selected cohorts.")
         else:
-            st.warning("No condominium data available for the selected filters.")
+            st.warning("No data available for the selected filters.")
     else:
-        st.info("👈 Select age cohorts to compare (e.g., 10yr, 20yr, 30yr)")
+        st.info(f"👈 Select {cohort_type.lower()} cohorts to compare")
 
 # ============= DISTRICT TAB =============
 elif selected_tab == "📍 District":
