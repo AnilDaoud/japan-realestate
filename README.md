@@ -75,6 +75,14 @@ docker exec -it japan-realestate-app python dbutils/ingest_data.py --full
 
 Open http://localhost:9001 in your browser.
 
+### Updating Data
+
+MLIT publishes new transaction data quarterly (late April, July, October, January). To fetch the latest data:
+
+```bash
+docker exec -it japan-realestate-app python dbutils/ingest_data.py --full
+```
+
 ### Useful Commands
 
 ```bash
