@@ -1869,7 +1869,9 @@ elif selected_tab == "📊 Cohorts":
                     fig.update_layout(
                         yaxis_tickformat=',',
                         height=450,
-                        hovermode='x unified'
+                        hovermode='x unified',
+                        xaxis_tickangle=-45,
+                        xaxis_nticks=20
                     )
                     st.plotly_chart(fig, width="stretch")
 
@@ -1890,7 +1892,9 @@ elif selected_tab == "📊 Cohorts":
                     fig2.update_layout(
                         yaxis_tickformat=',',
                         height=400,
-                        hovermode='x unified'
+                        hovermode='x unified',
+                        xaxis_tickangle=-45,
+                        xaxis_nticks=20
                     )
                     st.plotly_chart(fig2, width="stretch")
 
@@ -1904,7 +1908,12 @@ elif selected_tab == "📊 Cohorts":
                         title='Transaction Volume',
                         labels={'count': 'Transactions', 'period': 'Period', 'cohort': cohort_label}
                     )
-                    fig3.update_layout(height=300, barmode='stack')
+                    fig3.update_layout(
+                        height=300,
+                        barmode='stack',
+                        xaxis_tickangle=-45,
+                        xaxis_nticks=20
+                    )
                     st.plotly_chart(fig3, width="stretch")
 
                     # Explanation based on cohort type
