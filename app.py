@@ -1819,6 +1819,9 @@ elif selected_tab == "📊 Cohorts":
                 # Filter to cohorts with enough data
                 agg_data = agg_data[agg_data['count'] >= 5]
 
+                # Sort by year and quarter for proper x-axis ordering
+                agg_data = agg_data.sort_values(['transaction_year', 'transaction_quarter'])
+
                 if not agg_data.empty:
                     # Apply currency/tsubo conversions
                     unit_label = get_unit_label()
@@ -1856,6 +1859,9 @@ elif selected_tab == "📊 Cohorts":
                     agg_data['display_median'] = agg_data.apply(convert_cohort_price, axis=1)
                     agg_data['display_avg'] = agg_data.apply(convert_cohort_avg, axis=1)
 
+                    # Get sorted unique periods for x-axis ordering
+                    period_order = agg_data['period'].unique().tolist()
+
                     # Median price chart
                     fig = px.line(
                         agg_data,
@@ -1864,7 +1870,8 @@ elif selected_tab == "📊 Cohorts":
                         color='cohort',
                         title=f'Median Price ({unit_label}) by {cohort_label} Cohort',
                         labels={'display_median': f'Median {unit_label}', 'period': 'Period', 'cohort': cohort_label},
-                        markers=True
+                        markers=True,
+                        category_orders={'period': period_order}
                     )
                     fig.update_layout(
                         yaxis_tickformat=',',
@@ -1887,7 +1894,8 @@ elif selected_tab == "📊 Cohorts":
                         title=f'Average Price ({unit_label}) by {cohort_label} Cohort',
                         labels={'display_avg': f'Average {unit_label}', 'period': 'Period', 'cohort': cohort_label},
                         markers=True,
-                        line_dash_sequence=['dash']
+                        line_dash_sequence=['dash'],
+                        category_orders={'period': period_order}
                     )
                     fig2.update_layout(
                         yaxis_tickformat=',',
@@ -1906,7 +1914,8 @@ elif selected_tab == "📊 Cohorts":
                         y='count',
                         color='cohort',
                         title='Transaction Volume',
-                        labels={'count': 'Transactions', 'period': 'Period', 'cohort': cohort_label}
+                        labels={'count': 'Transactions', 'period': 'Period', 'cohort': cohort_label},
+                        category_orders={'period': period_order}
                     )
                     fig3.update_layout(
                         height=300,
