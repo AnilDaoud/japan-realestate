@@ -6,9 +6,8 @@ Tools for fetching Japanese real estate transaction data from the MLIT API and s
 
 | File | Description |
 |------|-------------|
-| `mlit_api_client.py` | Python client for MLIT Real Estate Information Library API |
-| `schema.sql` | PostgreSQL schema with indexes and materialized views |
-| `ingest_data.py` | Data ingestion pipeline (API → PostgreSQL) |
+| `schema_optimized.sql` | PostgreSQL schema with indexes and materialized views |
+| `ingest_data.py` | Data ingestion pipeline with MLIT API client (API → PostgreSQL) |
 
 ## Quick Start
 
@@ -32,16 +31,10 @@ export DATABASE_URL="postgresql://user:pass@localhost/mlit_realestate"
 createdb mlit_realestate
 
 # Apply schema
-psql mlit_realestate < schema.sql
+psql mlit_realestate < schema_optimized.sql
 ```
 
-### 4. Test API Connection
-
-```bash
-python mlit_api_client.py
-```
-
-### 5. Ingest Data
+### 4. Ingest Data
 
 ```bash
 # Import all Tokyo data for 2023

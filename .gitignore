@@ -16,6 +16,7 @@ share/
 # DB dumps
 *.sql
 *.sql.gz
+!dbutils/schema_optimized.sql
 
 # Python cache
 __pycache__/

@@ -22,7 +22,122 @@ import psycopg2
 from psycopg2.extras import execute_values
 import requests
 
-from mlit_api_client import MLITApiClient, PREFECTURE_CODES
+
+# =============================================================================
+# MLIT API CLIENT
+# =============================================================================
+
+MLIT_API_BASE = "https://www.reinfolib.mlit.go.jp/ex-api/external"
+
+PREFECTURE_CODES = {
+    "Hokkaido": "01", "北海道": "01",
+    "Aomori": "02", "青森県": "02",
+    "Iwate": "03", "岩手県": "03",
+    "Miyagi": "04", "宮城県": "04",
+    "Akita": "05", "秋田県": "05",
+    "Yamagata": "06", "山形県": "06",
+    "Fukushima": "07", "福島県": "07",
+    "Ibaraki": "08", "茨城県": "08",
+    "Tochigi": "09", "栃木県": "09",
+    "Gunma": "10", "群馬県": "10",
+    "Saitama": "11", "埼玉県": "11",
+    "Chiba": "12", "千葉県": "12",
+    "Tokyo": "13", "東京都": "13",
+    "Kanagawa": "14", "神奈川県": "14",
+    "Niigata": "15", "新潟県": "15",
+    "Toyama": "16", "富山県": "16",
+    "Ishikawa": "17", "石川県": "17",
+    "Fukui": "18", "福井県": "18",
+    "Yamanashi": "19", "山梨県": "19",
+    "Nagano": "20", "長野県": "20",
+    "Gifu": "21", "岐阜県": "21",
+    "Shizuoka": "22", "静岡県": "22",
+    "Aichi": "23", "愛知県": "23",
+    "Mie": "24", "三重県": "24",
+    "Shiga": "25", "滋賀県": "25",
+    "Kyoto": "26", "京都府": "26",
+    "Osaka": "27", "大阪府": "27",
+    "Hyogo": "28", "兵庫県": "28",
+    "Nara": "29", "奈良県": "29",
+    "Wakayama": "30", "和歌山県": "30",
+    "Tottori": "31", "鳥取県": "31",
+    "Shimane": "32", "島根県": "32",
+    "Okayama": "33", "岡山県": "33",
+    "Hiroshima": "34", "広島県": "34",
+    "Yamaguchi": "35", "山口県": "35",
+    "Tokushima": "36", "徳島県": "36",
+    "Kagawa": "37", "香川県": "37",
+    "Ehime": "38", "愛媛県": "38",
+    "Kochi": "39", "高知県": "39",
+    "Fukuoka": "40", "福岡県": "40",
+    "Saga": "41", "佐賀県": "41",
+    "Nagasaki": "42", "長崎県": "42",
+    "Kumamoto": "43", "熊本県": "43",
+    "Oita": "44", "大分県": "44",
+    "Miyazaki": "45", "宮崎県": "45",
+    "Kagoshima": "46", "鹿児島県": "46",
+    "Okinawa": "47", "沖縄県": "47",
+}
+
+
+class MLITApiClient:
+    """Client for MLIT Real Estate Information Library API."""
+
+    def __init__(self, api_key: str):
+        self.api_key = api_key
+        self.session = requests.Session()
+        self.session.headers.update({"Ocp-Apim-Subscription-Key": api_key})
+
+    def get_transactions(
+        self,
+        year: int,
+        area: str,
+        quarter: Optional[int] = None,
+        city: Optional[str] = None,
+        station: Optional[str] = None,
+        price_classification: str = "01",
+        language: str = "en"
+    ) -> List[Dict[str, Any]]:
+        """
+        Fetch real estate transactions from MLIT API.
+
+        Args:
+            year: Transaction year (e.g., 2023)
+            area: Prefecture code (e.g., "13" for Tokyo)
+            quarter: Quarter 1-4 (optional, fetches all if not specified)
+            city: Municipality code (e.g., "13103" for Minato-ku)
+            station: Station code
+            price_classification: "01" for transaction prices, "02" for contract prices
+            language: "en" or "ja"
+
+        Returns:
+            List of transaction records
+        """
+        params = {
+            "year": year,
+            "area": area,
+            "priceClassification": price_classification,
+            "language": language,
+        }
+
+        if quarter:
+            params["quarter"] = quarter
+        if city:
+            params["city"] = city
+        if station:
+            params["station"] = station
+
+        try:
+            resp = self.session.get(
+                f"{MLIT_API_BASE}/XIT001",
+                params=params,
+                timeout=30
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            return data.get("data", [])
+        except requests.RequestException as e:
+            raise Exception(f"API request failed: {e}")
 
 DATABASE_URL = os.environ.get(
     "DATABASE_URL",
