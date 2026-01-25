@@ -93,4 +93,5 @@ MIT
 
 ## Contributing
 
-Issues and pull requests are welcome at https://github.com/AnilDaoud/japan-realestate
+An example instance of this project is hosted at https://anil.diwi.org/japan-realestate/
+Issues and pull requests welcome.
