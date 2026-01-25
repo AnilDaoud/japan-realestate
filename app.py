@@ -15,6 +15,30 @@ from psycopg2.extras import RealDictCursor
 import os
 import requests
 from datetime import datetime
+from urllib.parse import urlencode
+import io
+
+# =============================================================================
+# GITHUB REPO FOR ISSUES/CONTACT
+# =============================================================================
+
+GITHUB_REPO_URL = "https://github.com/AnilDaoud/japan-realestate"
+
+# =============================================================================
+# JAPANESE REAL ESTATE TERM TOOLTIPS
+# =============================================================================
+
+TOOLTIPS = {
+    "tsubo": "Tsubo (坪) is a traditional Japanese unit of area. 1 tsubo ≈ 3.31 m² ≈ 35.58 sq ft. Common in real estate listings.",
+    "ldk": "Japanese floor plan notation: L=Living room, D=Dining room, K=Kitchen. Example: 2LDK = 2 bedrooms + Living/Dining/Kitchen area.",
+    "mansion": "In Japan, 'mansion' (マンション) refers to a concrete apartment/condo building, not a large house.",
+    "chome": "Chome (丁目) is a subdivision of a district, like a block number. Example: Roppongi 1-chome.",
+    "rc": "RC = Reinforced Concrete. SRC = Steel Reinforced Concrete. These are common building structure types in Japan.",
+    "unit_price": "Price per square meter (¥/m²) or per tsubo. This normalizes prices across different unit sizes for comparison.",
+    "building_age": "Years since construction. Older buildings typically depreciate, but location and maintenance matter.",
+    "coverage_ratio": "Building Coverage Ratio (建蔽率): Max % of land that can be covered by buildings. Set by zoning.",
+    "floor_area_ratio": "Floor Area Ratio (容積率): Max total floor area as % of land area. Higher = taller buildings allowed.",
+}
 
 # =============================================================================
 # CONSTANTS
@@ -23,6 +47,130 @@ from datetime import datetime
 # Conversion: 1 tsubo = 3.30579 m²
 TSUBO_TO_M2 = 3.30579
 M2_TO_TSUBO = 1 / TSUBO_TO_M2
+
+
+def generate_share_url(filters, tab_name, base_url=None):
+    """Generate a shareable URL with all current filter values."""
+    params = {"tab": tab_name}
+
+    # Add non-None filter values
+    if filters.get('prefecture_code'):
+        params['pref'] = filters['prefecture_code']
+    if filters.get('municipality_codes'):
+        params['muni'] = ','.join(filters['municipality_codes'])
+    if filters.get('districts'):
+        params['dist'] = ','.join(filters['districts'])
+    if filters.get('property_types'):
+        params['prop'] = ','.join(filters['property_types'])
+    if filters.get('year_range'):
+        params['yr'] = f"{filters['year_range'][0]}-{filters['year_range'][1]}"
+    if filters.get('building_year_range'):
+        params['byr'] = f"{filters['building_year_range'][0]}-{filters['building_year_range'][1]}"
+    if filters.get('area_range'):
+        params['area'] = f"{filters['area_range'][0]}-{filters['area_range'][1]}"
+    if filters.get('price_range'):
+        params['price'] = f"{filters['price_range'][0]}-{filters['price_range'][1]}"
+
+    query_string = urlencode(params)
+    if base_url:
+        return f"{base_url}?{query_string}"
+    return f"?{query_string}"
+
+
+def generate_valuation_pdf(valuation_data):
+    """Generate a PDF report for property valuation."""
+    # Create HTML content for the report
+    html_content = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <meta charset="UTF-8">
+        <title>Property Valuation Report</title>
+        <style>
+            body {{ font-family: Arial, sans-serif; margin: 40px; line-height: 1.6; }}
+            .header {{ text-align: center; border-bottom: 2px solid #333; padding-bottom: 20px; margin-bottom: 30px; }}
+            .header h1 {{ color: #2E86AB; margin-bottom: 5px; }}
+            .section {{ margin-bottom: 25px; }}
+            .section h2 {{ color: #333; border-bottom: 1px solid #ddd; padding-bottom: 5px; }}
+            table {{ width: 100%; border-collapse: collapse; margin: 15px 0; }}
+            th, td {{ padding: 10px; text-align: left; border-bottom: 1px solid #ddd; }}
+            th {{ background-color: #f5f5f5; }}
+            .highlight {{ background-color: #e8f4f8; font-weight: bold; }}
+            .verdict {{ font-size: 1.3em; padding: 15px; border-radius: 8px; text-align: center; margin: 20px 0; }}
+            .verdict.good {{ background-color: #d4edda; color: #155724; }}
+            .verdict.fair {{ background-color: #fff3cd; color: #856404; }}
+            .verdict.high {{ background-color: #f8d7da; color: #721c24; }}
+            .footer {{ margin-top: 40px; padding-top: 20px; border-top: 1px solid #ddd; font-size: 0.9em; color: #666; }}
+            .disclaimer {{ font-size: 0.8em; color: #999; margin-top: 30px; }}
+            @media print {{ body {{ margin: 20px; }} }}
+        </style>
+    </head>
+    <body>
+        <div class="header">
+            <h1>🏠 Property Valuation Report</h1>
+            <p>Generated on {datetime.now().strftime('%Y-%m-%d %H:%M')}</p>
+        </div>
+
+        <div class="section">
+            <h2>Property Details</h2>
+            <table>
+                <tr><th>Location</th><td>{valuation_data.get('location', 'N/A')}</td></tr>
+                <tr><th>District</th><td>{valuation_data.get('district', 'N/A')}</td></tr>
+                <tr><th>Property Type</th><td>{valuation_data.get('property_type', 'N/A')}</td></tr>
+                <tr><th>Area</th><td>{valuation_data.get('area', 0):.1f} m² ({valuation_data.get('area', 0) * M2_TO_TSUBO:.1f} tsubo)</td></tr>
+                <tr><th>Year Built</th><td>{valuation_data.get('building_year', 'N/A')}</td></tr>
+                <tr><th>Building Age</th><td>{valuation_data.get('building_age', 'N/A')} years</td></tr>
+                <tr><th>Layout</th><td>{valuation_data.get('floor_plan', 'N/A')}</td></tr>
+            </table>
+        </div>
+
+        <div class="section">
+            <h2>Valuation Summary</h2>
+            <div class="verdict {valuation_data.get('verdict_class', 'fair')}">
+                {valuation_data.get('verdict', 'Fair Price')}
+            </div>
+            <table>
+                <tr class="highlight"><th>Estimated Market Value</th><td>¥{valuation_data.get('estimated_value', 0):,.0f}</td></tr>
+                <tr><th>Low Estimate</th><td>¥{valuation_data.get('low_estimate', 0):,.0f}</td></tr>
+                <tr><th>High Estimate</th><td>¥{valuation_data.get('high_estimate', 0):,.0f}</td></tr>
+                <tr><th>Median Price per m²</th><td>¥{valuation_data.get('median_price_m2', 0):,.0f}</td></tr>
+                <tr><th>Comparable Transactions</th><td>{valuation_data.get('comparable_count', 0)}</td></tr>
+            </table>
+        </div>
+
+        {f'''
+        <div class="section">
+            <h2>Listing Analysis</h2>
+            <table>
+                <tr><th>Listing Price</th><td>¥{valuation_data.get('listing_price', 0):,.0f}</td></tr>
+                <tr><th>Listing Price per m²</th><td>¥{valuation_data.get('listing_price_m2', 0):,.0f}</td></tr>
+                <tr><th>Difference from Market</th><td>¥{valuation_data.get('price_diff', 0):+,.0f} ({valuation_data.get('price_diff_pct', 0):+.1f}%)</td></tr>
+                <tr><th>Price Percentile</th><td>{valuation_data.get('percentile', 0):.0f}%</td></tr>
+            </table>
+        </div>
+        ''' if valuation_data.get('listing_price') else ''}
+
+        <div class="section">
+            <h2>Market Context</h2>
+            <p>This valuation is based on <strong>{valuation_data.get('comparable_count', 0)}</strong> comparable
+            transactions in <strong>{valuation_data.get('location', 'the selected area')}</strong> from the
+            past 3 years, filtered by similar property characteristics.</p>
+        </div>
+
+        <div class="disclaimer">
+            <p><strong>Disclaimer:</strong> This valuation is for informational purposes only and should not be
+            considered as professional appraisal advice. Actual property values may vary based on specific
+            conditions, market timing, and other factors not captured in this analysis.</p>
+        </div>
+
+        <div class="footer">
+            <p>Data source: MLIT Real Estate Information Library (国土交通省不動産情報ライブラリ)</p>
+            <p>Report generated by Japan Real Estate Analytics | <a href="{GITHUB_REPO_URL}">{GITHUB_REPO_URL}</a></p>
+        </div>
+    </body>
+    </html>
+    """
+    return html_content
 
 # =============================================================================
 # CONFIG
@@ -479,7 +627,8 @@ if has_municipality_data:
         if not districts.empty:
             selected_districts = st.sidebar.multiselect(
                 "District / Chome",
-                options=districts['district_name'].tolist()
+                options=districts['district_name'].tolist(),
+                help=TOOLTIPS["chome"]
             )
             selected_districts = selected_districts if selected_districts else None
         else:
@@ -555,7 +704,8 @@ selected_property_types = selected_property_types if selected_property_types els
 structures = get_structures()
 selected_structures = st.sidebar.multiselect(
     "Structure (RC, Wood, etc.)",
-    options=structures['structure'].tolist()
+    options=structures['structure'].tolist(),
+    help=TOOLTIPS["rc"]
 )
 selected_structures = selected_structures if selected_structures else None
 
@@ -563,7 +713,8 @@ selected_structures = selected_structures if selected_structures else None
 floor_plans = get_floor_plans()
 selected_floor_plans = st.sidebar.multiselect(
     "Layout (1LDK, 2DK, etc.)",
-    options=floor_plans['floor_plan'].tolist()
+    options=floor_plans['floor_plan'].tolist(),
+    help=TOOLTIPS["ldk"]
 )
 selected_floor_plans = selected_floor_plans if selected_floor_plans else None
 
@@ -599,7 +750,8 @@ price_m2_range = st.sidebar.slider(
     min_value=0,
     max_value=500,
     value=(0, 500),
-    step=10
+    step=10,
+    help=TOOLTIPS["unit_price"]
 )
 price_m2_range = price_m2_range if price_m2_range != (0, 500) else None
 
@@ -620,7 +772,8 @@ building_year_range = st.sidebar.slider(
     "Year Built",
     min_value=min_build_year,
     max_value=max_build_year,
-    value=(min_build_year, max_build_year)
+    value=(min_build_year, max_build_year),
+    help=TOOLTIPS["building_age"]
 )
 building_year_range = building_year_range if building_year_range != (min_build_year, max_build_year) else None
 
@@ -664,7 +817,8 @@ price_unit = st.sidebar.radio(
     "Price Unit",
     options=["per m²", "per tsubo"],
     index=0,
-    horizontal=True
+    horizontal=True,
+    help=TOOLTIPS["tsubo"]
 )
 use_tsubo = price_unit == "per tsubo"
 
@@ -876,26 +1030,27 @@ st.caption("Data source: MLIT Real Estate Information Library | 6.1M+ transactio
 # Summary stats
 col1, col2, col3, col4 = st.columns(4)
 
-# Quick count query
-count_query, count_params = build_query("COUNT(*) as count", filters)
-count_result = run_query(count_query, count_params)
-transaction_count = count_result['count'].iloc[0] if not count_result.empty else 0
+with st.spinner("Loading summary stats..."):
+    # Quick count query
+    count_query, count_params = build_query("COUNT(*) as count", filters)
+    count_result = run_query(count_query, count_params)
+    transaction_count = count_result['count'].iloc[0] if not count_result.empty else 0
 
-# Period median (over entire date range)
-median_query, median_params = build_query(
-    "PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY t.unit_price) as median",
-    filters
-)
-median_result = run_query(median_query, median_params)
-median_price = median_result['median'].iloc[0] if not median_result.empty and median_result['median'].iloc[0] else 0
+    # Period median (over entire date range)
+    median_query, median_params = build_query(
+        "PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY t.unit_price) as median",
+        filters
+    )
+    median_result = run_query(median_query, median_params)
+    median_price = median_result['median'].iloc[0] if not median_result.empty and median_result['median'].iloc[0] else 0
 
-# Latest median (most recent quarter - last data point)
-latest_median_price, latest_period, latest_year, latest_quarter = get_latest_median_price(filters)
-if latest_median_price is None:
-    latest_median_price = median_price  # Fallback to period median
-    latest_period = f"{year_range[1]}"
-    latest_year = year_range[1]
-    latest_quarter = 4  # Default to Q4
+    # Latest median (most recent quarter - last data point)
+    latest_median_price, latest_period, latest_year, latest_quarter = get_latest_median_price(filters)
+    if latest_median_price is None:
+        latest_median_price = median_price  # Fallback to period median
+        latest_period = f"{year_range[1]}"
+        latest_year = year_range[1]
+        latest_quarter = 4  # Default to Q4
 
 col1.metric("Matching Transactions", f"{transaction_count:,}")
 col2.metric(
@@ -909,6 +1064,19 @@ col3.metric(
     help=f"Median price per {get_unit_label()} over the entire selected period"
 )
 col4.metric("Prefecture", selected_prefecture_name)
+
+# Share button
+share_url = generate_share_url(filters, TAB_NAMES[get_current_tab()])
+share_col1, share_col2 = st.columns([6, 1])
+with share_col2:
+    if st.button("🔗 Share View", help="Copy a link to this view with your current filters"):
+        st.session_state['show_share_url'] = True
+
+if st.session_state.get('show_share_url'):
+    st.info(f"**Share this view:** Copy the URL below\n\n`{share_url}`\n\n*(Append this to your app's base URL)*")
+    if st.button("✕ Close"):
+        st.session_state['show_share_url'] = False
+        st.rerun()
 
 # Tab navigation with state preservation
 current_tab_idx = get_current_tab()
@@ -936,7 +1104,8 @@ if selected_tab == "📈 Charts":
     if chart_mode == "Time Series":
         st.subheader("Historical Price Trends")
 
-        trends = get_price_trends(filters, frequency)
+        with st.spinner("Loading price trends..."):
+            trends = get_price_trends(filters, frequency)
 
         if not trends.empty:
             if frequency == 'Yearly':
@@ -1019,7 +1188,8 @@ if selected_tab == "📈 Charts":
     elif chart_mode == "Histogram":
         st.subheader("Price Distribution")
 
-        hist_data = get_histogram_data(filters)
+        with st.spinner("Loading price distribution..."):
+            hist_data = get_histogram_data(filters)
 
         if not hist_data.empty:
             fig = px.histogram(
@@ -1047,7 +1217,8 @@ if selected_tab == "📈 Charts":
     elif chart_mode == "Scatter (X vs Y)":
         st.subheader(f"{scatter_y} vs {scatter_x}")
 
-        scatter_data = get_scatter_data(filters)
+        with st.spinner("Loading scatter data..."):
+            scatter_data = get_scatter_data(filters)
 
         if not scatter_data.empty:
             # Map axis selections to column names
@@ -1120,7 +1291,8 @@ elif selected_tab == "🗺️ Map":
     )
     use_latest_only = map_mode.startswith("Latest")
 
-    map_data = get_map_data(filters, latest_only=use_latest_only)
+    with st.spinner("Loading map data..."):
+        map_data = get_map_data(filters, latest_only=use_latest_only)
 
     if not map_data.empty:
         # Apply conversions
@@ -1239,7 +1411,8 @@ elif selected_tab == "📅 Age Cohorts":
             cohort_query += " AND t.municipality_code = ANY(%s)"
             cohort_params.append(selected_municipality_codes)
 
-        cohort_data = run_query(cohort_query, cohort_params)
+        with st.spinner("Loading cohort data..."):
+            cohort_data = run_query(cohort_query, cohort_params)
 
         if not cohort_data.empty:
             # Create period column
@@ -1483,7 +1656,8 @@ elif selected_tab == "💰 Valuation":
                 """
                 dep_params = [val_muni_code, val_area * 0.7, val_area * 1.3]
 
-                dep_data = run_query(dep_query, dep_params)
+                with st.spinner("Calculating depreciation..."):
+                    dep_data = run_query(dep_query, dep_params)
 
                 if not dep_data.empty and len(dep_data) >= 2:
                     # Get price at purchase year and current year
@@ -1602,7 +1776,8 @@ elif selected_tab == "💰 Valuation":
 
                 comp_query += " ORDER BY t.transaction_year DESC, t.transaction_quarter DESC LIMIT 100"
 
-                comparables = run_query(comp_query, comp_params)
+                with st.spinner("Finding comparable properties..."):
+                    comparables = run_query(comp_query, comp_params)
 
                 if not comparables.empty and len(comparables) >= 3:
                     median_unit_price = comparables['unit_price'].median()
@@ -1703,6 +1878,54 @@ elif selected_tab == "💰 Valuation":
                     fig.update_layout(height=300, xaxis_tickformat=',')
                     st.plotly_chart(fig, width="stretch")
 
+                    # PDF Export button
+                    st.divider()
+
+                    # Prepare valuation data for PDF
+                    valuation_pdf_data = {
+                        'location': val_municipality,
+                        'district': val_district or 'Not specified',
+                        'property_type': val_property_type,
+                        'area': val_area,
+                        'building_year': val_building_year,
+                        'building_age': building_age,
+                        'floor_plan': val_floor_plan or 'Not specified',
+                        'median_price_m2': median_unit_price,
+                        'comparable_count': len(comparables),
+                    }
+
+                    if valuation_mode == "Estimate Value":
+                        valuation_pdf_data.update({
+                            'estimated_value': estimated_price_median,
+                            'low_estimate': max(0, low_estimate),
+                            'high_estimate': high_estimate,
+                            'verdict': 'Estimated Market Value',
+                            'verdict_class': 'fair',
+                        })
+                    else:  # Check Listing Price
+                        valuation_pdf_data.update({
+                            'estimated_value': fair_value,
+                            'low_estimate': (median_unit_price - std_unit_price) * val_area,
+                            'high_estimate': (median_unit_price + std_unit_price) * val_area,
+                            'listing_price': val_listing_price,
+                            'listing_price_m2': listing_price_per_m2,
+                            'price_diff': price_diff,
+                            'price_diff_pct': price_diff_pct,
+                            'percentile': percentile,
+                            'verdict': verdict.replace('🟢 ', '').replace('🟡 ', '').replace('🟠 ', '').replace('🔴 ', ''),
+                            'verdict_class': 'good' if price_diff_pct < -5 else ('high' if price_diff_pct > 15 else 'fair'),
+                        })
+
+                    pdf_html = generate_valuation_pdf(valuation_pdf_data)
+
+                    st.download_button(
+                        label="📄 Download Valuation Report (HTML)",
+                        data=pdf_html,
+                        file_name=f"valuation_report_{val_municipality}_{datetime.now().strftime('%Y%m%d')}.html",
+                        mime="text/html",
+                        help="Download a printable HTML report. Open in browser and use Print → Save as PDF for a PDF version."
+                    )
+
                 else:
                     st.warning(f"Only {len(comparables)} comparable transactions found. Try adjusting criteria.")
                     st.info("Tips: Remove floor plan filter, widen the district search, or increase the area range.")
@@ -1729,7 +1952,8 @@ elif selected_tab == "📋 Raw Data":
         order_by="t.transaction_year DESC, t.transaction_quarter DESC",
         limit=100
     )
-    sample_data = run_query(sample_query, sample_params)
+    with st.spinner("Loading transactions..."):
+        sample_data = run_query(sample_query, sample_params)
 
     if not sample_data.empty:
         unit_label = get_unit_label()
@@ -1798,4 +2022,9 @@ elif selected_tab == "📋 Raw Data":
 
 # Footer
 st.divider()
-st.caption("このサービスは、国土交通省不動産情報ライブラリのAPI機能を使用していますが、提供情報の最新性、正確性、完全性等が保証されたものではありません。")
+
+footer_col1, footer_col2 = st.columns([3, 1])
+with footer_col1:
+    st.caption("このサービスは、国土交通省不動産情報ライブラリのAPI機能を使用していますが、提供情報の最新性、正確性、完全性等が保証されたものではありません。")
+with footer_col2:
+    st.markdown(f"[📝 Report Issues]({GITHUB_REPO_URL}/issues) | [⭐ GitHub]({GITHUB_REPO_URL})")
