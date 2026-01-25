@@ -1656,11 +1656,11 @@ elif selected_tab == "📊 Cohorts":
 
     elif cohort_type == "Property Size":
         size_options = {
-            "Compact (<30m²)": (0, 30),
-            "Small (30-50m²)": (30, 50),
-            "Medium (50-70m²)": (50, 70),
-            "Large (70-100m²)": (70, 100),
-            "XL (100m²+)": (100, 9999),
+            "Compact (≤30m²)": (0, 30),
+            "Small (>30-50m²)": (30, 50),
+            "Medium (>50-70m²)": (50, 70),
+            "Large (>70-100m²)": (70, 100),
+            "XL (>100m²)": (100, 9999),
         }
         selected_cohort_names = st.multiselect(
             "Size Cohorts",
@@ -1674,12 +1674,12 @@ elif selected_tab == "📊 Cohorts":
 
     else:  # Total Price
         price_options = {
-            "Entry (<30M¥)": (0, 30),
-            "Affordable (30-50M¥)": (30, 50),
-            "Mid-range (50-80M¥)": (50, 80),
-            "Upper (80-120M¥)": (80, 120),
-            "Premium (120-200M¥)": (120, 200),
-            "Luxury (200M¥+)": (200, 9999),
+            "Entry (≤30M¥)": (0, 30),
+            "Affordable (>30-50M¥)": (30, 50),
+            "Mid-range (>50-80M¥)": (50, 80),
+            "Upper (>80-120M¥)": (80, 120),
+            "Premium (>120-200M¥)": (120, 200),
+            "Luxury (>200M¥)": (200, 9999),
         }
         selected_cohort_names = st.multiselect(
             "Price Cohorts",
@@ -1783,8 +1783,12 @@ elif selected_tab == "📊 Cohorts":
             elif cohort_type == "Property Size":
                 def assign_size_bucket(area):
                     for name, (low, high) in zip(selected_cohort_names, selected_cohorts):
-                        if low <= area < high:
-                            return name
+                        if low == 0:  # First bucket: ≤ high
+                            if area <= high:
+                                return name
+                        else:  # Other buckets: > low and ≤ high
+                            if low < area <= high:
+                                return name
                     return None
                 cohort_data['cohort'] = cohort_data['area_m2'].apply(assign_size_bucket)
 
@@ -1792,8 +1796,12 @@ elif selected_tab == "📊 Cohorts":
                 def assign_price_bucket(price):
                     price_m = price / 1_000_000  # Convert to millions
                     for name, (low, high) in zip(selected_cohort_names, selected_cohorts):
-                        if low <= price_m < high:
-                            return name
+                        if low == 0:  # First bucket: ≤ high
+                            if price_m <= high:
+                                return name
+                        else:  # Other buckets: > low and ≤ high
+                            if low < price_m <= high:
+                                return name
                     return None
                 cohort_data['cohort'] = cohort_data['trade_price'].apply(assign_price_bucket)
 
