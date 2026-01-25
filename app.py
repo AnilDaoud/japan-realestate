@@ -1627,7 +1627,7 @@ elif selected_tab == "🗺️ Map":
 # ============= COHORTS TAB =============
 elif selected_tab == "📊 Cohorts":
     st.subheader("Cohort Analysis")
-    st.caption("Compare price trends across different market segments over time")
+    st.caption("Compare price trends across different market segments over time. Sidebar filters are applied before analysis.")
 
     # Cohort type selector - get default from URL params
     cohort_options = ["Building Age", "Property Size", "Total Price"]
@@ -1735,6 +1735,34 @@ elif selected_tab == "📊 Cohorts":
         if filters.get('property_types'):
             cohort_query += " AND t.property_type_raw = ANY(%s)"
             cohort_params.append(filters['property_types'])
+
+        if filters.get('structures'):
+            cohort_query += " AND t.structure = ANY(%s)"
+            cohort_params.append(filters['structures'])
+
+        if filters.get('floor_plans'):
+            cohort_query += " AND t.floor_plan = ANY(%s)"
+            cohort_params.append(filters['floor_plans'])
+
+        if filters.get('area_range'):
+            cohort_query += " AND t.area_m2 BETWEEN %s AND %s"
+            cohort_params.extend(filters['area_range'])
+
+        if filters.get('price_range'):
+            cohort_query += " AND t.trade_price BETWEEN %s AND %s"
+            cohort_params.extend([r * 1_000_000 for r in filters['price_range']])
+
+        if filters.get('price_m2_range'):
+            cohort_query += " AND t.unit_price BETWEEN %s AND %s"
+            cohort_params.extend([r * 10_000 for r in filters['price_m2_range']])
+
+        if filters.get('building_year_range'):
+            cohort_query += " AND t.building_year BETWEEN %s AND %s"
+            cohort_params.extend(filters['building_year_range'])
+
+        if filters.get('districts'):
+            cohort_query += " AND t.district_name = ANY(%s)"
+            cohort_params.append(filters['districts'])
 
         with st.spinner("Loading cohort data..."):
             cohort_data = run_query(cohort_query, cohort_params)
