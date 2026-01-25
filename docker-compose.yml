@@ -1,0 +1,40 @@
+# Docker Compose for Japan Real Estate Analytics
+#
+# Usage:
+#   docker compose up -d
+#
+# First run will initialize database from schema. Import data with:
+#   docker exec -i japan-realestate-db psql -U postgres -d mlit_realestate < backup.sql
+
+services:
+  app:
+    build: .
+    container_name: japan-realestate-app
+    ports:
+      - "9001:9001"
+    environment:
+      - DATABASE_URL=postgresql://postgres:postgres@db:5432/mlit_realestate
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+
+  db:
+    image: postgres:15-alpine
+    container_name: japan-realestate-db
+    environment:
+      - POSTGRES_DB=mlit_realestate
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./dbutils/schema_optimized.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d mlit_realestate"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+volumes:
+  postgres_data:

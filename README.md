@@ -42,10 +42,54 @@ python dbutils/ingest_data.py --full
 
 ```bash
 export DATABASE_URL="postgresql://localhost/mlit_realestate"
-streamlit run app.py
+streamlit run app.py --server.port=9001
 ```
 
-Open http://localhost:8501 in your browser.
+Open http://localhost:9001 in your browser.
+
+## Docker Deployment
+
+### Build and Run
+
+```bash
+docker compose up -d
+```
+
+This starts both the app (port 9001) and PostgreSQL database.
+
+### Import Data
+
+On first run, the database is empty. Import your data backup:
+
+```bash
+docker exec -i japan-realestate-db psql -U postgres -d mlit_realestate < backup.sql
+```
+
+Or ingest fresh data from the MLIT API:
+
+```bash
+docker exec -it japan-realestate-app python dbutils/ingest_data.py --full
+```
+
+### Access
+
+Open http://localhost:9001 in your browser.
+
+### Useful Commands
+
+```bash
+# View logs
+docker compose logs -f
+
+# Restart app after code changes
+docker compose up -d --build
+
+# Stop everything
+docker compose down
+
+# Stop and remove data volume
+docker compose down -v
+```
 
 ## Getting an API Key
 
@@ -59,7 +103,8 @@ You'll receive the key via email in 2-3 days.
 |-----|-------------|
 | **Charts** | Time series, histogram, and scatter plots of price trends |
 | **Map** | Price comparison by ward/city with visualizations |
-| **Age Cohorts** | Track prices for buildings of different ages over time |
+| **Districts** | Price trends and YoY changes by district within selected area |
+| **Cohorts** | Analyze prices by building age, property size, or total price |
 | **Valuation** | Estimate property values, check listings, track depreciation |
 | **Raw Data** | Browse and download transaction records |
 
