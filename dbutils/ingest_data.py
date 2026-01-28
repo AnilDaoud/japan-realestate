@@ -200,6 +200,22 @@ def parse_building_year(year_str: str) -> Optional[int]:
     return None
 
 
+def parse_quarter_from_period(period: str) -> Optional[int]:
+    """Parse quarter number from Period field like '1st quarter 2024'."""
+    if not period:
+        return None
+    period_lower = period.lower()
+    if '1st' in period_lower or 'first' in period_lower:
+        return 1
+    elif '2nd' in period_lower or 'second' in period_lower:
+        return 2
+    elif '3rd' in period_lower or 'third' in period_lower:
+        return 3
+    elif '4th' in period_lower or 'fourth' in period_lower:
+        return 4
+    return None
+
+
 def parse_numeric(value: Any) -> Optional[float]:
     if value is None or value == "":
         return None
@@ -280,7 +296,7 @@ def transform_record(
         "coverage_ratio": int(coverage_ratio) if coverage_ratio else None,
         "floor_area_ratio": int(floor_area_ratio) if floor_area_ratio else None,
         "transaction_year": year,
-        "transaction_quarter": quarter,
+        "transaction_quarter": quarter if quarter else parse_quarter_from_period(record.get("Period", "")),
         "transaction_period": record.get("Period"),
         "renovation": record.get("Renovation"),
         "remarks": record.get("Remarks"),
@@ -371,16 +387,15 @@ def ingest_prefecture_year(
     )
     ensure_prefecture_exists(conn, prefecture_code, pref_name)
 
-    quarters_to_fetch = quarters or [1, 2, 3, 4]
-
-    for quarter in quarters_to_fetch:
-        print(f"    Q{quarter}...", end=" ", flush=True)
+    # If no specific quarters requested, fetch all at once (4x faster)
+    if quarters is None:
+        print(f"    All quarters...", end=" ", flush=True)
 
         try:
             transactions = client.get_transactions(
                 year=year,
                 area=prefecture_code,
-                quarter=quarter,
+                quarter=None,  # Omit quarter to get all
                 language="en"
             )
 
@@ -388,7 +403,7 @@ def ingest_prefecture_year(
                 print("not yet available")
             elif transactions:
                 records = [
-                    transform_record(t, prefecture_code, year, quarter)
+                    transform_record(t, prefecture_code, year, None)
                     for t in transactions
                 ]
                 inserted = insert_transactions(conn, records, prefecture_code)
@@ -401,6 +416,36 @@ def ingest_prefecture_year(
             print(f"Error: {e}")
 
         time.sleep(MIN_REQUEST_INTERVAL)
+    else:
+        # Fetch specific quarters one by one
+        for quarter in quarters:
+            print(f"    Q{quarter}...", end=" ", flush=True)
+
+            try:
+                transactions = client.get_transactions(
+                    year=year,
+                    area=prefecture_code,
+                    quarter=quarter,
+                    language="en"
+                )
+
+                if transactions is None:
+                    print("not yet available")
+                elif transactions:
+                    records = [
+                        transform_record(t, prefecture_code, year, quarter)
+                        for t in transactions
+                    ]
+                    inserted = insert_transactions(conn, records, prefecture_code)
+                    total_inserted += inserted
+                    print(f"{len(transactions)} fetched, {inserted} new")
+                else:
+                    print("0 records")
+
+            except Exception as e:
+                print(f"Error: {e}")
+
+            time.sleep(MIN_REQUEST_INTERVAL)
 
     return total_inserted
 
