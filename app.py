@@ -1634,14 +1634,24 @@ elif selected_tab == "📊 Cohorts":
     url_cohort = st.query_params.get("cohort", "Building Age")
     url_cohort_idx = cohort_options.index(url_cohort) if url_cohort in cohort_options else 0
 
-    cohort_type = st.radio(
-        "Cohort Type",
-        options=cohort_options,
-        index=url_cohort_idx,
-        horizontal=True,
-        key="cohort_type",
-        help="Choose how to segment the market for comparison"
-    )
+    col_cohort_type, col_threshold = st.columns([3, 1])
+    with col_cohort_type:
+        cohort_type = st.radio(
+            "Cohort Type",
+            options=cohort_options,
+            index=url_cohort_idx,
+            horizontal=True,
+            key="cohort_type",
+            help="Choose how to segment the market for comparison"
+        )
+    with col_threshold:
+        min_transactions = st.number_input(
+            "Min transactions/quarter",
+            min_value=1,
+            max_value=20,
+            value=5,
+            help="Minimum transactions per quarter to include in price charts. Lower values show more data but may be noisy."
+        )
 
     # Cohort options based on type
     if cohort_type == "Building Age":
@@ -1816,11 +1826,18 @@ elif selected_tab == "📊 Cohorts":
                 ).reset_index()
                 agg_data['period'] = agg_data['transaction_year'].astype(str) + ' Q' + agg_data['transaction_quarter'].astype(str)
 
-                # Filter to cohorts with enough data
-                agg_data = agg_data[agg_data['count'] >= 5]
-
                 # Sort by year and quarter for proper x-axis ordering
                 agg_data = agg_data.sort_values(['transaction_year', 'transaction_quarter'])
+
+                # Keep unfiltered data for volume chart
+                agg_data_all = agg_data.copy()
+
+                # Check for low volume cohorts before filtering
+                cohort_volumes = agg_data.groupby('cohort')['count'].sum()
+                low_volume_cohorts = cohort_volumes[cohort_volumes < 50].index.tolist()
+
+                # Filter to cohorts with enough data for price charts
+                agg_data = agg_data[agg_data['count'] >= min_transactions]
 
                 if not agg_data.empty:
                     # Apply currency/tsubo conversions
@@ -1906,16 +1923,17 @@ elif selected_tab == "📊 Cohorts":
                     )
                     st.plotly_chart(fig2, width="stretch")
 
-                    # Transaction volume
+                    # Transaction volume (uses unfiltered data to show true volume)
                     st.markdown("##### Transaction Volume by Cohort")
+                    period_order_all = agg_data_all.drop_duplicates('period')['period'].tolist()
                     fig3 = px.bar(
-                        agg_data,
+                        agg_data_all,
                         x='period',
                         y='count',
                         color='cohort',
-                        title='Transaction Volume',
+                        title='Transaction Volume (All Data)',
                         labels={'count': 'Transactions', 'period': 'Period', 'cohort': cohort_label},
-                        category_orders={'period': period_order}
+                        category_orders={'period': period_order_all}
                     )
                     fig3.update_layout(
                         height=300,
@@ -1924,6 +1942,11 @@ elif selected_tab == "📊 Cohorts":
                         xaxis_nticks=20
                     )
                     st.plotly_chart(fig3, width="stretch")
+
+                    # Show warning for low volume cohorts
+                    if low_volume_cohorts:
+                        cohort_warning = ", ".join(low_volume_cohorts)
+                        st.warning(f"⚠️ Low data volume for: **{cohort_warning}** (<50 total transactions). Price trends may be unreliable.")
 
                     # Explanation based on cohort type
                     if cohort_type == "Building Age":
