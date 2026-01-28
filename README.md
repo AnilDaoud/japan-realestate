@@ -52,10 +52,13 @@ Open http://localhost:9001 in your browser.
 ### Build and Run
 
 ```bash
+# Create .env file with your API key (only needed once)
+echo 'MLIT_API_KEY=your-api-key-here' > .env
+
 docker compose up -d
 ```
 
-This starts both the app (port 9001) and PostgreSQL database.
+This starts both the app (port 9001) and PostgreSQL database. The API key is needed for data ingestion.
 
 ### Import Data
 
@@ -77,10 +80,40 @@ Open http://localhost:9001 in your browser.
 
 ### Updating Data
 
-MLIT publishes new transaction data quarterly (late April, July, October, January). To fetch the latest data:
+MLIT publishes new transaction data quarterly (late April, July, October, January) and occasionally updates historical data. To fetch updates:
 
 ```bash
-docker exec -it japan-realestate-app python dbutils/ingest_data.py --full
+docker exec japan-realestate-app python dbutils/ingest_data.py --full
+```
+
+### Automated Monthly Updates
+
+Set up a cron job for automatic monthly re-ingestion:
+
+```bash
+mkdir -p ~/japan-realestate/logs
+crontab -e
+```
+
+Add this line (runs 1st of month at 3am). Note: `\%` escaping is required in crontab:
+
+```
+0 3 1 * * docker exec japan-realestate-app python dbutils/ingest_data.py --full > ~/japan-realestate/logs/ingest-$(date +\%Y\%m\%d).log 2>&1
+```
+
+To run manually from terminal (no escaping needed):
+
+```bash
+docker exec japan-realestate-app python dbutils/ingest_data.py --full > ~/japan-realestate/logs/ingest-$(date +%Y%m%d).log 2>&1
+```
+
+Check what was added after each run:
+
+```sql
+SELECT transaction_year, COUNT(*) as new_records
+FROM transactions
+WHERE created_at > NOW() - INTERVAL '1 day'
+GROUP BY transaction_year ORDER BY 1;
 ```
 
 ### Useful Commands

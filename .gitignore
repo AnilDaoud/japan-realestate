@@ -13,6 +13,9 @@ share/
 .env
 .env.local
 
+# Logs
+logs/
+
 # DB dumps
 *.sql
 *.sql.gz

@@ -14,6 +14,7 @@ services:
       - "9001:9001"
     environment:
       - DATABASE_URL=postgresql://postgres:postgres@db:5432/mlit_realestate
+      - MLIT_API_KEY=${MLIT_API_KEY}
     restart: unless-stopped
     depends_on:
       db:
