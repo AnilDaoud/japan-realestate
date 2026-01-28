@@ -133,6 +133,9 @@ class MLITApiClient:
                 params=params,
                 timeout=30
             )
+            if resp.status_code == 404:
+                # Data not yet available for this period
+                return None
             resp.raise_for_status()
             data = resp.json()
             return data.get("data", [])
@@ -381,7 +384,9 @@ def ingest_prefecture_year(
                 language="en"
             )
 
-            if transactions:
+            if transactions is None:
+                print("not yet available")
+            elif transactions:
                 records = [
                     transform_record(t, prefecture_code, year, quarter)
                     for t in transactions
@@ -433,7 +438,8 @@ def ingest_full_history(
     print('='*60)
 
 
-def ingest_incremental(client: MLITApiClient, conn):
+def find_latest_available_quarter(client: MLITApiClient) -> tuple:
+    """Find the latest quarter with available data by probing Tokyo."""
     now = datetime.now()
     year = now.year
     quarter = ((now.month - 1) // 3)
@@ -441,7 +447,32 @@ def ingest_incremental(client: MLITApiClient, conn):
         quarter = 4
         year -= 1
 
-    print(f"Incremental update: {year} Q{quarter}")
+    # Try up to 4 quarters back to find available data
+    for _ in range(4):
+        print(f"  Checking {year} Q{quarter}...", end=" ", flush=True)
+        result = client.get_transactions(year=year, area="13", quarter=quarter, language="en")
+        if result is not None:
+            print("available")
+            return (year, quarter)
+        print("not available")
+        quarter -= 1
+        if quarter == 0:
+            quarter = 4
+            year -= 1
+        time.sleep(0.5)
+
+    return (None, None)
+
+
+def ingest_incremental(client: MLITApiClient, conn):
+    print("Finding latest available quarter...")
+    year, quarter = find_latest_available_quarter(client)
+
+    if year is None:
+        print("No recent data available. Try again later.")
+        return
+
+    print(f"\nIncremental update: {year} Q{quarter}")
 
     prefectures = sorted(set(PREFECTURE_CODES.values()))
     total = 0
