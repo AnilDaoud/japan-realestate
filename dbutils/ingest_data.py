@@ -133,8 +133,8 @@ class MLITApiClient:
                 params=params,
                 timeout=30
             )
-            if resp.status_code == 404:
-                # Data not yet available for this period
+            if resp.status_code in (400, 404):
+                # Data not available for this period (400 = invalid period, 404 = not yet published)
                 return None
             resp.raise_for_status()
             data = resp.json()
