@@ -23,6 +23,8 @@ import io
 # =============================================================================
 
 GITHUB_REPO_URL = "https://github.com/AnilDaoud/japan-realestate"
+COFFEE_URL = os.getenv("COFFEE_URL", "")        # Optional: set via environment for personal deployments
+MATOMO_URL = os.getenv("MATOMO_URL", "")        # Optional: set via environment for personal deployments
 
 # =============================================================================
 # JAPANESE REAL ESTATE TERM TOOLTIPS
@@ -47,6 +49,44 @@ TOOLTIPS = {
 # Conversion: 1 tsubo = 3.30579 m²
 TSUBO_TO_M2 = 3.30579
 M2_TO_TSUBO = 1 / TSUBO_TO_M2
+
+# =============================================================================
+# MATOMO ANALYTICS
+# =============================================================================
+
+@st.cache_data(ttl=86400)
+def get_matomo_visitors():
+    """Fetch visitor count for /japan-realestate page from Matomo."""
+    try:
+        matomo_url = MATOMO_URL
+        api_key = os.getenv("MATOMO_API_KEY")
+
+        if not api_key:
+            return None
+
+        response = requests.post(
+            f"{matomo_url}/index.php",
+            data={
+                "module": "API",
+                "method": "Actions.getPageUrls",
+                "idSite": 1,
+                "period": "range",
+                "date": "2020-01-01,today",
+                "format": "json",
+                "token_auth": api_key,
+            },
+            timeout=5
+        )
+
+        data = response.json()
+
+        if isinstance(data, list):
+            for page in data:
+                if "japan-realestate" in page.get("label", ""):
+                    return page.get("nb_visits", 0)
+        return None
+    except Exception:
+        return None
 
 
 def generate_share_url(filters, tab_name, display_options=None, base_url=None):
@@ -197,8 +237,8 @@ st.set_page_config(
 )
 
 # Tab state management via query params
-TAB_NAMES = ["charts", "map", "cohorts", "micro", "valuation", "data"]
-TAB_LABELS = ["📈 Charts", "🗺️ Map", "📊 Cohorts", "📍 District", "💰 Valuation", "📋 Raw Data"]
+TAB_NAMES = ["charts", "map", "cohorts", "micro", "valuation", "data", "quality"]
+TAB_LABELS = ["📈 Charts", "🗺️ Map", "📊 Cohorts", "📍 District", "💰 Valuation", "📋 Raw Data", "⚠️ Data Quality"]
 
 def get_current_tab():
     """Get current tab from query params, default to first tab."""
@@ -228,6 +268,34 @@ def run_query(query, params=None):
     with conn.cursor(cursor_factory=RealDictCursor) as cur:
         cur.execute(query, params or ())
         return pd.DataFrame(cur.fetchall())
+
+def get_data_quality_filter(quality_mode="exclude_critical"):
+    """
+    Get WHERE clause fragment for data quality filtering.
+
+    Args:
+        quality_mode: "all" (no filter), "exclude_critical" (default), or "only_suspicious"
+
+    Returns:
+        Tuple of (where_clause, params_list)
+    """
+    if quality_mode == "all":
+        return "", []
+    elif quality_mode == "exclude_critical":
+        return """
+            AND t.id NOT IN (
+                SELECT transaction_id FROM data_quality_flags
+                WHERE issue_code IN ('sentinel_area_9999', 'sentinel_area_8888', 'sentinel_price_extreme_low',
+                                      'missing_both_location')
+            )
+        """, []  # Excludes: area=9999, area=8888, price<1k, missing location
+    elif quality_mode == "only_suspicious":
+        return """
+            AND t.id IN (
+                SELECT transaction_id FROM data_quality_flags
+            )
+        """, []
+    return "", []
 
 @st.cache_data(ttl=3600)
 def get_prefectures():
@@ -578,6 +646,23 @@ def build_query(select_clause, filters, group_by=None, order_by=None, limit=None
         conditions.append("t.area_m2 BETWEEN %s AND %s")
         params.extend(filters['area_range'])
 
+    # Add data quality filter
+    quality_filter = filters.get('quality_filter', 'exclude_critical')
+    if quality_filter == 'exclude_critical':
+        conditions.append("""
+            t.id NOT IN (
+                SELECT transaction_id FROM data_quality_flags
+                WHERE issue_code IN ('sentinel_area_9999', 'sentinel_area_8888', 'sentinel_price_extreme_low',
+                                      'missing_both_location')
+            )
+        """)
+    elif quality_filter == 'only_suspicious':
+        conditions.append("""
+            t.id IN (
+                SELECT transaction_id FROM data_quality_flags
+            )
+        """)
+
     query += " WHERE " + " AND ".join(conditions)
 
     if group_by:
@@ -847,6 +932,24 @@ currency = st.sidebar.radio(
 )
 use_fx = currency != "JPY"
 
+st.sidebar.header("🔍 Data Quality")
+
+# Data quality mode
+quality_mode = st.sidebar.selectbox(
+    "Data Quality Mode",
+    options=["Exclude Suspicious", "Include All", "View Suspicious Only"],
+    index=0,
+    help="Exclude Suspicious: Remove records with area=9999, extreme prices, or missing location\nInclude All: Show all records including potentially erroneous ones\nView Suspicious Only: Focus on flagged records for deep analysis"
+)
+
+# Map display names to internal modes
+quality_mode_map = {
+    "Exclude Suspicious": "exclude_critical",
+    "Include All": "all",
+    "View Suspicious Only": "only_suspicious"
+}
+quality_filter = quality_mode_map[quality_mode]
+
 # Fetch FX rates if needed (cached)
 fx_rates = {}
 current_fx_rate = None
@@ -871,6 +974,7 @@ filters = {
     'price_range': price_range,
     'price_m2_range': price_m2_range,
     'area_range': area_range,
+    'quality_filter': quality_filter,
 }
 
 # =============================================================================
@@ -2690,11 +2794,178 @@ elif selected_tab == "📋 Raw Data":
     else:
         st.warning("No data available for selected filters")
 
+# ============= DATA QUALITY TAB =============
+elif selected_tab == "⚠️ Data Quality":
+    st.subheader("Suspicious Transaction Analysis")
+    st.markdown("""
+    This tab analyzes data quality issues identified during the cleanup process. Use it to:
+    - Understand which records may have data errors
+    - Investigate specific anomalies
+    - Decide how to handle suspicious records
+    """)
+
+    # Show data quality stats
+    col1, col2, col3 = st.columns(3)
+
+    with st.spinner("Loading data quality info..."):
+        # Get total records
+        total_query = "SELECT COUNT(*) as count FROM transactions"
+        total_result = run_query(total_query)
+        total_count = int(total_result['count'].iloc[0]) if not total_result.empty else 0
+
+        # Get flagged records (exclude normal missing municipality codes)
+        flagged_query = """
+            SELECT COUNT(DISTINCT transaction_id) as count
+            FROM data_quality_flags
+            WHERE issue_code != 'missing_municipality_code'
+        """
+        flagged_result = run_query(flagged_query)
+        flagged_count = int(flagged_result['count'].iloc[0]) if not flagged_result.empty else 0
+
+    with col1:
+        st.metric("Total Transactions", f"{total_count:,}")
+    with col2:
+        st.metric("Flagged Records", f"{flagged_count:,}")
+    with col3:
+        st.metric("Clean Records", f"{total_count - flagged_count:,}")
+
+    # Issue breakdown (exclude normal cases like missing municipality code but has district)
+    st.subheader("Issues by Type")
+
+    issue_query = """
+        SELECT issue_code, COUNT(*) as count, issue_description
+        FROM data_quality_flags
+        WHERE issue_code != 'missing_municipality_code'
+        GROUP BY issue_code, issue_description
+        ORDER BY count DESC
+    """
+
+    issues_df = run_query(issue_query)
+    if not issues_df.empty:
+        # Create a chart
+        chart_data = issues_df[['issue_code', 'count']].sort_values('count', ascending=True)
+        st.bar_chart(chart_data.set_index('issue_code'))
+
+        # Show detailed table
+        st.dataframe(
+            issues_df[['issue_code', 'count', 'issue_description']].rename(
+                columns={'issue_code': 'Issue Type', 'count': 'Records Affected', 'issue_description': 'Description'}
+            ),
+            use_container_width=True,
+            height=300
+        )
+
+    # View suspicious records
+    st.subheader("View Suspicious Records")
+
+    col1, col2 = st.columns([2, 1])
+    with col1:
+        selected_issues = st.multiselect(
+            "Filter by issue type",
+            options=issues_df['issue_code'].tolist() if not issues_df.empty else [],
+            default=None,
+            help="Leave empty to show all genuine issues (excludes normal missing municipality codes)"
+        )
+    with col2:
+        limit_records = st.number_input("Show up to N records", min_value=10, max_value=1000, value=50, step=10)
+
+    # Build query to show suspicious records
+    if True:  # Always show records (use filters below)
+        view_query = """
+            SELECT DISTINCT
+                t.id, t.prefecture_code, t.district_name, t.property_type_raw,
+                t.trade_price, t.unit_price, t.area_m2, t.building_year,
+                f.issue_code, f.issue_description
+            FROM transactions t
+            JOIN data_quality_flags f ON t.id = f.transaction_id
+            WHERE f.issue_code != 'missing_municipality_code'
+        """
+        view_params = []
+
+        if selected_issues:
+            placeholders = ','.join(['%s'] * len(selected_issues))
+            view_query += f" AND f.issue_code IN ({placeholders})"
+            view_params.extend(selected_issues)
+
+        view_query += f" ORDER BY f.issue_code, t.id DESC LIMIT {limit_records}"
+
+        with st.spinner(f"Loading up to {limit_records} suspicious records..."):
+            suspicious_df = run_query(view_query, view_params if view_params else None)
+
+        if not suspicious_df.empty:
+            st.write(f"Showing {len(suspicious_df)} records")
+
+            # Apply display formatting
+            display_sus = suspicious_df.copy()
+            display_sus['trade_price_formatted'] = display_sus['trade_price'].apply(
+                lambda x: f"¥{x:,.0f}" if x else "N/A"
+            )
+            display_sus['unit_price_formatted'] = display_sus['unit_price'].apply(
+                lambda x: f"¥{x:,.0f}" if x else "N/A"
+            )
+            display_sus['area_m2_formatted'] = display_sus['area_m2'].apply(
+                lambda x: f"{x:.1f}" if x else "N/A"
+            )
+
+            st.dataframe(
+                display_sus[[
+                    'prefecture_code', 'district_name', 'property_type_raw',
+                    'trade_price_formatted', 'unit_price_formatted', 'area_m2_formatted',
+                    'building_year', 'issue_code'
+                ]].rename(columns={
+                    'prefecture_code': 'Pref',
+                    'district_name': 'District',
+                    'property_type_raw': 'Type',
+                    'trade_price_formatted': 'Price',
+                    'unit_price_formatted': 'Unit Price',
+                    'area_m2_formatted': 'Area (m²)',
+                    'building_year': 'Year Built',
+                    'issue_code': 'Issue'
+                }),
+                use_container_width=True,
+                height=600
+            )
+
+            # Download suspicious records
+            csv_suspicious = suspicious_df[[
+                'id', 'prefecture_code', 'district_name', 'property_type_raw',
+                'trade_price', 'unit_price', 'area_m2', 'building_year', 'issue_code'
+            ]].to_csv(index=False)
+            st.download_button(
+                label="📥 Download Suspicious Records (CSV)",
+                data=csv_suspicious,
+                file_name=f"suspicious_transactions_{pd.Timestamp.now().strftime('%Y%m%d')}.csv",
+                mime="text/csv"
+            )
+        else:
+            st.info("No suspicious records found matching the selected criteria")
+
+    st.divider()
+    st.markdown("""
+    **About Data Quality Flags (Excluded by Default):**
+    - **sentinel_area_9999**: Area field is 9999 (placeholder value indicating missing data)
+    - **sentinel_area_8888**: Area field is 8888 (placeholder value indicating missing data)
+    - **sentinel_price_extreme_low**: Trade price < ¥1,000 (likely data entry error)
+    - **missing_both_location**: Missing both municipality code AND district (actual data quality issue)
+
+    **NOT Flagged (Considered Normal/Valid):**
+    - Any unit price (including > ¥5M/m²) — Possible in ultra-premium areas like central Tokyo, especially for land+building combinations
+    - Unit price < ¥500/m² — Valid for agricultural and forest land in remote areas
+    - Missing municipality_code but has district_name — Normal for regions like Hokkaido where MLIT API doesn't provide municipality codes
+    """)
+
 # Footer
 st.divider()
 
-footer_col1, footer_col2 = st.columns([3, 1])
+footer_col1, footer_col2, footer_col3 = st.columns([2, 1.5, 1.5])
 with footer_col1:
     st.caption("このサービスは、国土交通省不動産情報ライブラリのAPI機能を使用していますが、提供情報の最新性、正確性、完全性等が保証されたものではありません。")
 with footer_col2:
-    st.markdown(f"[📝 Report Issues]({GITHUB_REPO_URL}/issues) | [⭐ GitHub]({GITHUB_REPO_URL})")
+    visitor_count = get_matomo_visitors()
+    if visitor_count:
+        st.caption(f"📊 Page Visits: {visitor_count:,}")
+with footer_col3:
+    footer_links = f"[⭐ GitHub]({GITHUB_REPO_URL})"
+    if COFFEE_URL:
+        footer_links += f" | [☕ Buy Me a Coffee]({COFFEE_URL})"
+    st.markdown(footer_links)

@@ -15,6 +15,9 @@ services:
     environment:
       - DATABASE_URL=postgresql://postgres:postgres@db:5432/mlit_realestate
       - MLIT_API_KEY=${MLIT_API_KEY}
+      - MATOMO_API_KEY=${MATOMO_API_KEY}
+      - MATOMO_URL=${MATOMO_URL}
+      - COFFEE_URL=${COFFEE_URL}
     restart: unless-stopped
     depends_on:
       db:
