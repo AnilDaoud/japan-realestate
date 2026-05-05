@@ -237,8 +237,8 @@ st.set_page_config(
 )
 
 # Tab state management via query params
-TAB_NAMES = ["charts", "map", "cohorts", "micro", "valuation", "data", "quality"]
-TAB_LABELS = ["📈 Charts", "🗺️ Map", "📊 Cohorts", "📍 District", "💰 Valuation", "📋 Raw Data", "⚠️ Data Quality"]
+TAB_NAMES = ["charts", "map", "cohorts", "micro", "valuation", "insights", "data", "quality"]
+TAB_LABELS = ["📈 Charts", "🗺️ Map", "📊 Cohorts", "📍 District", "💰 Valuation", "🔭 Insights", "📋 Raw Data", "⚠️ Data Quality"]
 
 def get_current_tab():
     """Get current tab from query params, default to first tab."""
@@ -1323,6 +1323,146 @@ def get_district_rankings(prefecture_code, municipality_codes, filters, limit=50
         HAVING COUNT(*) >= 5
         ORDER BY median_price_m2 DESC
         LIMIT {limit}
+    """
+
+    return run_query(query, params)
+
+# =============================================================================
+# INSIGHTS DATA FUNCTIONS
+# =============================================================================
+
+INSIGHT_PROPERTY_TYPES = [
+    "Pre-owned Condominiums, etc.",
+    "Residential Land(Land Only)",
+    "Pre-owned House",
+    "Residential Land(Land and Building)",
+]
+
+@st.cache_data(ttl=3600)
+def get_rural_surge_data(quality_filter="exclude_critical"):
+    quality_clause, _ = get_data_quality_filter(quality_filter)
+    query = f"""
+        SELECT
+            p.name_en as prefecture,
+            t.transaction_year as year,
+            PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY t.unit_price)::INTEGER as median_price
+        FROM transactions t
+        JOIN prefectures p ON t.prefecture_code = p.code
+        WHERE t.unit_price IS NOT NULL
+          AND t.unit_price > 0
+          AND t.transaction_year BETWEEN 2016 AND 2024
+          {quality_clause}
+        GROUP BY p.name_en, t.transaction_year
+        HAVING COUNT(*) >= 30
+        ORDER BY p.name_en, t.transaction_year
+    """
+    return run_query(query)
+
+@st.cache_data(ttl=3600)
+def get_city_comparison_data(quality_filter="exclude_critical"):
+    quality_clause, _ = get_data_quality_filter(quality_filter)
+
+    query = f"""
+        WITH labeled AS (
+            SELECT
+                CASE
+                    WHEN t.municipality_code BETWEEN '13101' AND '13123' THEN 'Tokyo'
+                    WHEN t.municipality_code BETWEEN '27102' AND '27128' THEN 'Osaka'
+                    WHEN t.municipality_code BETWEEN '23101' AND '23116' THEN 'Nagoya'
+                    WHEN t.municipality_code BETWEEN '40101' AND '40109' THEN 'Fukuoka'
+                    WHEN t.municipality_code BETWEEN '26101' AND '26111' THEN 'Kyoto'
+                    WHEN t.prefecture_code = '01' AND (
+                        t.district_name ILIKE '%%Kita%%jo%%' OR
+                        t.district_name ILIKE '%%Minami%%jo%%' OR
+                        t.district_name ILIKE '%%Odori%%' OR
+                        t.district_name ILIKE '%%Sapporo%%' OR
+                        t.district_name ILIKE '%%Chuo%%'
+                    )
+                    AND t.district_name NOT ILIKE 'Kitago%%'
+                    AND t.district_name NOT IN ('Chuo1jo', 'Chuo2jo', 'Omagarichuo')
+                    AND t.district_name NOT IN ('Kyoeiodori', 'Minamiodori', 'Shimbashiodori', 'Kitaodori')
+                    THEN 'Sapporo'
+                END as city,
+                t.transaction_year as year,
+                t.unit_price
+            FROM transactions t
+            WHERE (
+                t.municipality_code BETWEEN '13101' AND '13123'
+                OR t.municipality_code BETWEEN '27102' AND '27128'
+                OR t.municipality_code BETWEEN '23101' AND '23116'
+                OR t.municipality_code BETWEEN '40101' AND '40109'
+                OR t.municipality_code BETWEEN '26101' AND '26111'
+                OR (t.prefecture_code = '01' AND (
+                    t.district_name ILIKE '%%Kita%%jo%%' OR
+                    t.district_name ILIKE '%%Minami%%jo%%' OR
+                    t.district_name ILIKE '%%Odori%%' OR
+                    t.district_name ILIKE '%%Sapporo%%' OR
+                    t.district_name ILIKE '%%Chuo%%'
+                ))
+            )
+              AND t.property_type_raw = 'Pre-owned Condominiums, etc.'
+              AND t.unit_price IS NOT NULL
+              AND t.unit_price > 0
+              {quality_clause}
+        )
+        SELECT city, year, PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY unit_price)::INTEGER as median_price
+        FROM labeled
+        WHERE city IS NOT NULL
+        GROUP BY city, year
+        HAVING COUNT(*) >= 20
+        ORDER BY city, year
+    """
+    return run_query(query)
+
+@st.cache_data(ttl=3600)
+def get_tokyo_premium_data(quality_filter="exclude_critical"):
+    quality_clause, _ = get_data_quality_filter(quality_filter)
+    query = f"""
+        SELECT
+            t.transaction_year as year,
+            CASE WHEN t.prefecture_code = '13' THEN 'Tokyo' ELSE 'National (ex-Tokyo)' END as segment,
+            PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY t.unit_price)::INTEGER as median_price
+        FROM transactions t
+        WHERE t.unit_price IS NOT NULL
+          AND t.unit_price > 0
+          {quality_clause}
+        GROUP BY t.transaction_year, segment
+        HAVING COUNT(*) >= 100
+        ORDER BY t.transaction_year, segment
+    """
+    return run_query(query)
+
+@st.cache_data(ttl=3600)
+def get_property_type_trends(filters):
+    prefecture_code = filters.get('prefecture_code', '13')
+    municipality_codes = filters.get('municipality_codes', [])
+    year_start, year_end = filters.get('year_range', (2016, 2024))
+    quality_filter = filters.get('quality_filter', 'exclude_critical')
+
+    quality_clause, _ = get_data_quality_filter(quality_filter)
+    query = f"""
+        SELECT
+            t.property_type_raw as property_type,
+            t.transaction_year as year,
+            PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY t.unit_price)::INTEGER as median_price
+        FROM transactions t
+        WHERE t.prefecture_code = %s
+          AND t.property_type_raw = ANY(%s)
+          AND t.transaction_year BETWEEN %s AND %s
+          AND t.unit_price IS NOT NULL
+          AND t.unit_price > 0
+          {quality_clause}
+    """
+    params = [prefecture_code, INSIGHT_PROPERTY_TYPES, year_start, year_end]
+
+    if municipality_codes:
+        query += " AND t.municipality_code = ANY(%s)"
+        params.append(municipality_codes)
+
+    query += """
+        GROUP BY t.property_type_raw, t.transaction_year
+        HAVING COUNT(*) >= 10
+        ORDER BY t.property_type_raw, t.transaction_year
     """
 
     return run_query(query, params)
@@ -2953,6 +3093,156 @@ elif selected_tab == "⚠️ Data Quality":
     - Unit price < ¥500/m² — Valid for agricultural and forest land in remote areas
     - Missing municipality_code but has district_name — Normal for regions like Hokkaido where MLIT API doesn't provide municipality codes
     """)
+
+elif selected_tab == "🔭 Insights":
+    st.subheader("Property Type Price Comparison")
+    st.caption("📍 Respects your sidebar filters — change prefecture or year range to update | prices in ¥/m²")
+
+    with st.spinner("Loading property type data..."):
+        prop_df = get_property_type_trends(filters)
+
+    if not prop_df.empty:
+        types_with_data = prop_df.groupby('property_type')['year'].count()
+        types_with_sufficient_data = types_with_data[types_with_data >= 3].index.tolist()
+
+        if len(types_with_sufficient_data) >= 2:
+            filtered_prop_df = prop_df[prop_df['property_type'].isin(types_with_sufficient_data)]
+            fig = px.line(
+                filtered_prop_df,
+                x='year',
+                y='median_price',
+                color='property_type',
+                markers=True,
+                height=500,
+                labels=dict(year='Year', median_price='Median Unit Price (¥/m²)', property_type='Property Type'),
+                title='Property Type Trends in Selected Location'
+            )
+            fig.update_layout(legend=dict(orientation='h', yanchor='bottom', y=1.02, xanchor='right', x=1))
+            st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.info("Only one property type has sufficient data (≥3 years) in the selected location. Select a different location or adjust filters.")
+
+    st.markdown("**What this shows:** Median price trends by property type (condo, house, land, land+building) in your selected location. Helps identify which property types are appreciating or depreciating.")
+    st.divider()
+
+    st.subheader("Post-Pandemic Rural Surge")
+    st.caption("🌐 National data — sidebar location filters are ignored | prices in ¥/m²")
+    with st.spinner("Loading rural surge data..."):
+        rural_df = get_rural_surge_data(filters.get('quality_filter', 'exclude_critical'))
+
+    if not rural_df.empty:
+        pivot_df = rural_df.pivot(index='prefecture', columns='year', values='median_price')
+        pivot_df = pivot_df.dropna(how='all')
+
+        yoy_pct = pivot_df.pct_change(axis=1) * 100
+        yoy_pct = yoy_pct.dropna(how='all')
+
+        if not yoy_pct.empty:
+            fig = px.imshow(
+                yoy_pct,
+                color_continuous_scale='RdBu_r',
+                color_continuous_midpoint=0,
+                zmin=-30,
+                zmax=50,
+                aspect='auto',
+                height=700,
+                labels=dict(color='YoY % Change', x='Year', y='Prefecture'),
+                title='YoY Median Price Change (%) by Prefecture'
+            )
+            st.plotly_chart(fig, use_container_width=True)
+    else:
+        st.info("No data available for rural surge analysis")
+
+    st.markdown("**What this shows:** Year-over-year percentage change in median unit prices. Red indicates price appreciation, blue indicates depreciation. Highlights the 2020–2022 rural surge (post-pandemic migration) and its reversal.")
+    st.divider()
+
+    st.subheader("Major Cities Condo Price Comparison")
+    st.caption("🌐 National data — sidebar location filters are ignored | pre-owned condominiums only | year range and quality filter are respected | prices in ¥/m²")
+
+    with st.spinner("Loading city comparison data..."):
+        city_df = get_city_comparison_data(filters.get('quality_filter', 'exclude_critical'))
+
+    if not city_df.empty and 'city' in city_df.columns:
+        fig = px.line(
+            city_df,
+            x='year',
+            y='median_price',
+            color='city',
+            markers=True,
+            height=500,
+            labels=dict(year='Year', median_price='Median Unit Price (¥/m²)', city='City'),
+            title='Major Cities Condo Price Trends'
+        )
+        fig.update_layout(hovermode='x unified')
+        st.plotly_chart(fig, use_container_width=True)
+    else:
+        st.info("No city-level condo data available for the selected cities")
+
+    st.markdown("**What this shows:** Long-term median price trends for pre-owned condominiums in Japan's 6 major cities (Tokyo, Osaka, Nagoya, Fukuoka, Kyoto, Sapporo). Condos provide a consistent comparison across cities.")
+    st.divider()
+
+    st.subheader("Tokyo Premium Gap")
+    st.caption("🌐 National data — sidebar location filters are ignored | prices in ¥/m²")
+
+    with st.spinner("Loading Tokyo premium data..."):
+        tokyo_df = get_tokyo_premium_data(filters.get('quality_filter', 'exclude_critical'))
+
+    if not tokyo_df.empty:
+        tokyo_wide = tokyo_df.pivot(index='year', columns='segment', values='median_price').reset_index()
+        tokyo_wide['ratio'] = tokyo_wide['Tokyo'] / tokyo_wide['National (ex-Tokyo)']
+
+        col1, col2 = st.columns(2)
+
+        with col1:
+            fig_abs = go.Figure()
+            fig_abs.add_trace(go.Scatter(
+                x=tokyo_wide['year'],
+                y=tokyo_wide['Tokyo'],
+                mode='lines+markers',
+                name='Tokyo',
+                line=dict(color='#E63946', width=3),
+                marker=dict(size=8)
+            ))
+            fig_abs.add_trace(go.Scatter(
+                x=tokyo_wide['year'],
+                y=tokyo_wide['National (ex-Tokyo)'],
+                mode='lines+markers',
+                name='National (ex-Tokyo)',
+                line=dict(color='#457B9D', width=3),
+                marker=dict(size=8)
+            ))
+            fig_abs.update_layout(
+                title='Absolute Prices',
+                xaxis_title='Year',
+                yaxis_title='Median Unit Price (¥/m²)',
+                hovermode='x unified',
+                height=450
+            )
+            st.plotly_chart(fig_abs, use_container_width=True)
+
+        with col2:
+            fig_ratio = px.line(
+                tokyo_wide,
+                x='year',
+                y='ratio',
+                height=450,
+                labels=dict(year='Year', ratio='Price Ratio (Tokyo / National ex-Tokyo)', value='Ratio'),
+                title='Tokyo Premium Ratio'
+            )
+            fig_ratio.add_hline(y=1.0, line_dash='dash', line_color='gray', annotation_text='Parity (1.0x)', annotation_position='right')
+            st.plotly_chart(fig_ratio, use_container_width=True)
+    else:
+        st.info("No data available for Tokyo premium analysis")
+
+    st.markdown("**What this shows:** Left: Absolute median prices over time. Right: Tokyo's price premium as a multiple of national (excluding Tokyo) prices. Values > 1 mean Tokyo is more expensive.")
+    st.divider()
+
+    st.markdown(
+        f"**Want to see a new analysis here?** "
+        f"[Open an issue on GitHub]({GITHUB_REPO_URL}/issues/new"
+        f"?labels=insights&title=Insights+request%3A+) "
+        f"and describe what you'd like to explore."
+    )
 
 # Footer
 st.divider()
