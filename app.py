@@ -237,8 +237,8 @@ st.set_page_config(
 )
 
 # Tab state management via query params
-TAB_NAMES = ["charts", "map", "cohorts", "micro", "valuation", "insights", "data", "quality"]
-TAB_LABELS = ["📈 Charts", "🗺️ Map", "📊 Cohorts", "📍 District", "💰 Valuation", "🔭 Insights", "📋 Raw Data", "⚠️ Data Quality"]
+TAB_NAMES = ["charts", "map", "cohorts", "micro", "valuation", "insights", "data", "quality", "stats"]
+TAB_LABELS = ["📈 Charts", "🗺️ Map", "📊 Cohorts", "📍 District", "💰 Valuation", "🔭 Insights", "📋 Raw Data", "⚠️ Data Quality", "📊 DB Stats"]
 
 INSIGHT_CHOICES = {
     "🔧 Renovation Premium Crossover":        "renovation",
@@ -279,12 +279,71 @@ def on_tab_change():
 def get_connection():
     return psycopg2.connect(DATABASE_URL)
 
-@st.cache_data(ttl=3600)
+@st.cache_data(ttl=86400)
 def run_query(query, params=None):
     conn = get_connection()
     with conn.cursor(cursor_factory=RealDictCursor) as cur:
         cur.execute(query, params or ())
         return pd.DataFrame(cur.fetchall())
+
+@st.cache_data(ttl=300)
+def get_db_stats():
+    """Get database statistics: record counts by year, latest quarter, total records."""
+    query = """
+    SELECT
+        transaction_year,
+        transaction_quarter,
+        COUNT(*) as count
+    FROM transactions
+    GROUP BY transaction_year, transaction_quarter
+    ORDER BY transaction_year DESC, transaction_quarter DESC
+    """
+    df = run_query(query)
+    if df.empty:
+        return None
+
+    latest = df.iloc[0]
+    yearly = df.groupby('transaction_year')['count'].sum().reset_index().sort_values('transaction_year', ascending=False)
+    total = yearly['count'].sum()
+
+    return {
+        'latest_year': latest['transaction_year'],
+        'latest_quarter': latest['transaction_quarter'],
+        'latest_count': latest['count'],
+        'total_records': int(total),
+        'yearly': yearly.to_dict('records')
+    }
+
+def get_ingest_logs():
+    """Read recent ingest logs from ~/japan-realestate/logs/."""
+    import glob
+    import os
+
+    log_dir = os.path.expanduser("~/japan-realestate/logs")
+    if not os.path.exists(log_dir):
+        return []
+
+    log_files = sorted(glob.glob(os.path.join(log_dir, "ingest-*.log")), reverse=True)
+
+    logs = []
+    for log_file in log_files[:12]:  # Last 12 months
+        try:
+            stat = os.stat(log_file)
+            filename = os.path.basename(log_file)
+            with open(log_file, 'r') as f:
+                content = f.read()
+                # Try to extract row counts or status from logs
+                success = 'error' not in content.lower() and 'failed' not in content.lower()
+            logs.append({
+                'filename': filename,
+                'timestamp': datetime.fromtimestamp(stat.st_mtime),
+                'success': success,
+                'size_kb': stat.st_size / 1024
+            })
+        except Exception as e:
+            pass
+
+    return logs
 
 def get_data_quality_filter(quality_mode="exclude_critical"):
     """
@@ -326,7 +385,7 @@ def build_location_clause(prefecture_code, municipality_codes):
             params.append(municipality_codes)
     return clause, params
 
-@st.cache_data(ttl=3600)
+@st.cache_data(ttl=86400)
 def get_prefectures():
     return run_query("""
         SELECT DISTINCT p.code, p.name_en
@@ -335,7 +394,7 @@ def get_prefectures():
         ORDER BY p.code
     """)
 
-@st.cache_data(ttl=3600)
+@st.cache_data(ttl=86400)
 def get_municipalities(prefecture_code):
     return run_query("""
         SELECT DISTINCT m.code, COALESCE(m.name_en, m.name_ja) as name
@@ -345,7 +404,7 @@ def get_municipalities(prefecture_code):
         ORDER BY name
     """, (prefecture_code,))
 
-@st.cache_data(ttl=3600)
+@st.cache_data(ttl=86400)
 def get_districts(municipality_codes):
     if not municipality_codes:
         return pd.DataFrame(columns=['district_name'])
@@ -358,7 +417,7 @@ def get_districts(municipality_codes):
         ORDER BY district_name
     """, (municipality_codes,))
 
-@st.cache_data(ttl=3600)
+@st.cache_data(ttl=86400)
 def get_districts_by_prefecture(prefecture_code):
     """Get districts for prefectures where municipality_code is NULL."""
     return run_query("""
@@ -372,7 +431,7 @@ def get_districts_by_prefecture(prefecture_code):
         LIMIT 500
     """, (prefecture_code,))
 
-@st.cache_data(ttl=3600)
+@st.cache_data(ttl=86400)
 def search_districts(prefecture_code, search_term):
     """Search for districts by name pattern."""
     if not search_term or len(search_term) < 2:
@@ -389,7 +448,7 @@ def search_districts(prefecture_code, search_term):
         LIMIT 50
     """, (prefecture_code, f'%{search_term}%'))
 
-@st.cache_data(ttl=3600)
+@st.cache_data(ttl=86400)
 def get_property_types():
     return run_query("""
         SELECT DISTINCT property_type_raw
@@ -398,7 +457,7 @@ def get_property_types():
         ORDER BY property_type_raw
     """)
 
-@st.cache_data(ttl=3600)
+@st.cache_data(ttl=86400)
 def get_structures():
     return run_query("""
         SELECT DISTINCT structure
@@ -407,7 +466,7 @@ def get_structures():
         ORDER BY structure
     """)
 
-@st.cache_data(ttl=3600)
+@st.cache_data(ttl=86400)
 def get_floor_plans():
     return run_query("""
         SELECT DISTINCT floor_plan
@@ -416,7 +475,7 @@ def get_floor_plans():
         ORDER BY floor_plan
     """)
 
-@st.cache_data(ttl=3600)
+@st.cache_data(ttl=86400)
 def get_year_range():
     result = run_query("""
         SELECT MIN(transaction_year) as min_year, MAX(transaction_year) as max_year
@@ -424,7 +483,7 @@ def get_year_range():
     """)
     return int(result['min_year'].iloc[0]), int(result['max_year'].iloc[0])
 
-@st.cache_data(ttl=3600)
+@st.cache_data(ttl=86400)
 def get_building_year_range():
     result = run_query("""
         SELECT MIN(building_year) as min_year, MAX(building_year) as max_year
@@ -433,7 +492,7 @@ def get_building_year_range():
     """)
     return int(result['min_year'].iloc[0]), int(result['max_year'].iloc[0])
 
-@st.cache_data(ttl=3600)
+@st.cache_data(ttl=86400)
 def get_stations(prefecture_code):
     """Get stations with transaction data for a prefecture."""
     return run_query("""
@@ -447,7 +506,7 @@ def get_stations(prefecture_code):
         LIMIT 500
     """, (prefecture_code,))
 
-@st.cache_data(ttl=3600)
+@st.cache_data(ttl=86400)
 def get_map_data(filters, latest_only=False):
     """Get aggregated price data by municipality for map visualization.
 
@@ -490,7 +549,7 @@ def get_map_data(filters, latest_only=False):
     return run_query(query, params)
 
 
-@st.cache_data(ttl=3600)
+@st.cache_data(ttl=86400)
 def get_latest_median_price(filters):
     """Get median price for the latest quarter (last data point) in the selected range."""
     year_start = filters.get('year_range', [2005, 2025])[0]
@@ -577,7 +636,7 @@ def get_latest_median_price(filters):
 # CURRENCY CONVERSION (FX rates from database)
 # =============================================================================
 
-@st.cache_data(ttl=3600)
+@st.cache_data(ttl=86400)
 def get_historical_fx_rates(start_year, end_year, target_currency="USD"):
     """Fetch historical quarterly FX rates from database."""
     result = run_query("""
@@ -594,7 +653,7 @@ def get_historical_fx_rates(start_year, end_year, target_currency="USD"):
             rates[(int(row['year']), int(row['quarter']))] = float(row['rate'])
     return rates
 
-@st.cache_data(ttl=3600)
+@st.cache_data(ttl=86400)
 def get_current_fx_rate(target_currency="USD"):
     """Get the most recent FX rate for display purposes."""
     result = run_query("""
@@ -1379,7 +1438,7 @@ INSIGHT_PROPERTY_TYPES = [
     "Residential Land(Land and Building)",
 ]
 
-@st.cache_data(ttl=3600)
+@st.cache_data(ttl=86400)
 def get_rural_surge_data(quality_filter="exclude_critical"):
     quality_clause, _ = get_data_quality_filter(quality_filter)
     query = f"""
@@ -1399,7 +1458,7 @@ def get_rural_surge_data(quality_filter="exclude_critical"):
     """
     return run_query(query)
 
-@st.cache_data(ttl=3600)
+@st.cache_data(ttl=86400)
 def get_city_comparison_data(quality_filter="exclude_critical"):
     quality_clause, _ = get_data_quality_filter(quality_filter)
 
@@ -1455,7 +1514,7 @@ def get_city_comparison_data(quality_filter="exclude_critical"):
     """
     return run_query(query)
 
-@st.cache_data(ttl=3600)
+@st.cache_data(ttl=86400)
 def get_tokyo_premium_data(quality_filter="exclude_critical"):
     quality_clause, _ = get_data_quality_filter(quality_filter)
     query = f"""
@@ -1473,7 +1532,7 @@ def get_tokyo_premium_data(quality_filter="exclude_critical"):
     """
     return run_query(query)
 
-@st.cache_data(ttl=3600)
+@st.cache_data(ttl=86400)
 def get_renovation_premium_data(quality_filter="exclude_critical", prefecture_code=None, municipality_codes=None):
     quality_clause, _ = get_data_quality_filter(quality_filter)
     location_clause, params = build_location_clause(prefecture_code, municipality_codes)
@@ -1495,7 +1554,7 @@ def get_renovation_premium_data(quality_filter="exclude_critical", prefecture_co
     """
     return run_query(query, params)
 
-@st.cache_data(ttl=3600)
+@st.cache_data(ttl=86400)
 def get_volume_price_data(quality_filter="exclude_critical", prefecture_code=None, municipality_codes=None):
     quality_clause, _ = get_data_quality_filter(quality_filter)
     location_clause, params = build_location_clause(prefecture_code, municipality_codes)
@@ -1514,7 +1573,7 @@ def get_volume_price_data(quality_filter="exclude_critical", prefecture_code=Non
     """
     return run_query(query, params)
 
-@st.cache_data(ttl=3600)
+@st.cache_data(ttl=86400)
 def get_condo_depreciation_data(quality_filter="exclude_critical", prefecture_code=None, municipality_codes=None):
     quality_clause, _ = get_data_quality_filter(quality_filter)
     location_clause, params = build_location_clause(prefecture_code, municipality_codes)
@@ -1535,7 +1594,7 @@ def get_condo_depreciation_data(quality_filter="exclude_critical", prefecture_co
     """
     return run_query(query, params)
 
-@st.cache_data(ttl=3600)
+@st.cache_data(ttl=86400)
 def get_structure_type_data(quality_filter="exclude_critical", prefecture_code=None, municipality_codes=None):
     quality_clause, _ = get_data_quality_filter(quality_filter)
     location_clause, params = build_location_clause(prefecture_code, municipality_codes)
@@ -1561,7 +1620,7 @@ def get_structure_type_data(quality_filter="exclude_critical", prefecture_code=N
     """
     return run_query(query, params)
 
-@st.cache_data(ttl=3600)
+@st.cache_data(ttl=86400)
 def get_seasonal_index_data(quality_filter="exclude_critical"):
     quality_clause, _ = get_data_quality_filter(quality_filter)
     query = f"""
@@ -1577,7 +1636,7 @@ def get_seasonal_index_data(quality_filter="exclude_critical"):
     """
     return run_query(query)
 
-@st.cache_data(ttl=3600)
+@st.cache_data(ttl=86400)
 def get_auction_discount_data(quality_filter="exclude_critical", prefecture_code=None, municipality_codes=None):
     quality_clause, _ = get_data_quality_filter(quality_filter)
     location_clause, params = build_location_clause(prefecture_code, municipality_codes)
@@ -1603,7 +1662,7 @@ def get_auction_discount_data(quality_filter="exclude_critical", prefecture_code
     """
     return run_query(query, params)
 
-@st.cache_data(ttl=3600)
+@st.cache_data(ttl=86400)
 def get_land_shape_data(quality_filter="exclude_critical", prefecture_code=None, municipality_codes=None):
     quality_clause, _ = get_data_quality_filter(quality_filter)
     location_clause, params = build_location_clause(prefecture_code, municipality_codes)
@@ -1624,7 +1683,7 @@ def get_land_shape_data(quality_filter="exclude_critical", prefecture_code=None,
     """
     return run_query(query, params)
 
-@st.cache_data(ttl=3600)
+@st.cache_data(ttl=86400)
 def get_road_width_data(quality_filter="exclude_critical", prefecture_code=None, municipality_codes=None):
     quality_clause, _ = get_data_quality_filter(quality_filter)
     location_clause, params = build_location_clause(prefecture_code, municipality_codes)
@@ -1652,7 +1711,7 @@ def get_road_width_data(quality_filter="exclude_critical", prefecture_code=None,
     """
     return run_query(query, params)
 
-@st.cache_data(ttl=3600)
+@st.cache_data(ttl=86400)
 def get_tokyo_ward_rankings_data(quality_filter="exclude_critical"):
     quality_clause, _ = get_data_quality_filter(quality_filter)
     query = f"""
@@ -1674,7 +1733,7 @@ def get_tokyo_ward_rankings_data(quality_filter="exclude_critical"):
     """
     return run_query(query)
 
-@st.cache_data(ttl=3600)
+@st.cache_data(ttl=86400)
 def get_big_ticket_data(quality_filter="exclude_critical", prefecture_code=None, municipality_codes=None):
     quality_clause, _ = get_data_quality_filter(quality_filter)
     location_clause, params = build_location_clause(prefecture_code, municipality_codes)
@@ -1695,7 +1754,7 @@ def get_big_ticket_data(quality_filter="exclude_critical", prefecture_code=None,
     """
     return run_query(query, params)
 
-@st.cache_data(ttl=3600)
+@st.cache_data(ttl=86400)
 def get_zoning_density_data(quality_filter="exclude_critical", prefecture_code=None, municipality_codes=None):
     quality_clause, _ = get_data_quality_filter(quality_filter)
     location_clause, params = build_location_clause(prefecture_code, municipality_codes)
@@ -1722,7 +1781,7 @@ def get_zoning_density_data(quality_filter="exclude_critical", prefecture_code=N
     """
     return run_query(query, params)
 
-@st.cache_data(ttl=3600)
+@st.cache_data(ttl=86400)
 def get_property_type_trends(filters):
     prefecture_code = filters.get('prefecture_code', '13')
     municipality_codes = filters.get('municipality_codes', [])
@@ -3203,14 +3262,28 @@ elif selected_tab == "📋 Raw Data":
                              f'Total Price ({currency_symbol})', f'Price ({unit_label})',
                              'Area (m²)', 'Year Built', 'Layout', 'Structure']
 
+        rows_per_page = 50
+        total_pages = (len(display_df) // rows_per_page) + (1 if len(display_df) % rows_per_page else 0)
+
+        col1, col2 = st.columns([3, 1])
+        with col1:
+            st.caption(f"Showing {len(display_df)} transactions • {total_pages} pages")
+        with col2:
+            current_page = st.selectbox("Page", range(1, total_pages + 1), key="raw_data_page")
+
+        start_idx = (current_page - 1) * rows_per_page
+        end_idx = start_idx + rows_per_page
+        page_df = display_df.iloc[start_idx:end_idx]
+
         st.dataframe(
-            display_df.style.format({
+            page_df.style.format({
                 f'Total Price ({currency_symbol})': '{:,.0f}',
                 f'Price ({unit_label})': '{:,.0f}',
                 'Area (m²)': '{:.1f}'
             }),
             width="stretch",
-            height=500
+            height=500,
+            use_container_width=True
         )
 
         # Download button
@@ -3800,6 +3873,83 @@ elif selected_tab == "🔭 Insights":
         f"?labels=insights&title=Insights+request%3A+) "
         f"and describe what you'd like to explore."
     )
+
+elif selected_tab == "📊 DB Stats":
+    st.subheader("Database & Ingest Status")
+
+    with st.spinner("Loading database statistics..."):
+        stats = get_db_stats()
+        logs = get_ingest_logs()
+
+    if stats:
+        # Summary metrics
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            st.metric("Total Records", f"{stats['total_records']:,}")
+        with col2:
+            st.metric("Latest Quarter", f"20{stats['latest_year'][-2:]} Q{stats['latest_quarter']}")
+        with col3:
+            st.metric("Latest Q Records", f"{stats['latest_count']:,}")
+        with col4:
+            st.metric("Years Covered", len(stats['yearly']))
+
+        st.divider()
+
+        # Records by year
+        st.subheader("Records by Transaction Year")
+        yearly_df = pd.DataFrame(stats['yearly'])
+        yearly_df = yearly_df.sort_values('transaction_year')
+
+        fig = px.bar(
+            yearly_df,
+            x='transaction_year',
+            y='count',
+            labels={'transaction_year': 'Year', 'count': 'Record Count'},
+            height=400,
+            title='Transactions by Year'
+        )
+        fig.update_layout(hovermode='x unified')
+        st.plotly_chart(fig, use_container_width=True)
+
+        # Ingest logs
+        st.subheader("Recent Ingest Runs")
+        if logs:
+            logs_df = pd.DataFrame(logs)
+            logs_df = logs_df.sort_values('timestamp', ascending=False)
+
+            # Display as a nice table
+            display_logs = logs_df.copy()
+            display_logs['timestamp'] = display_logs['timestamp'].dt.strftime('%Y-%m-%d %H:%M:%S')
+            display_logs['status'] = display_logs['success'].apply(lambda x: '✅ Success' if x else '⚠️ Check log')
+            display_logs['size'] = display_logs['size_kb'].apply(lambda x: f'{x:.1f} KB')
+
+            st.dataframe(
+                display_logs[['filename', 'timestamp', 'status', 'size']].rename(columns={
+                    'filename': 'Ingest Date',
+                    'timestamp': 'Last Modified',
+                    'status': 'Status',
+                    'size': 'Log Size'
+                }),
+                use_container_width=True,
+                hide_index=True
+            )
+
+            # Show latest log tail
+            st.subheader("Latest Ingest Log (tail)")
+            latest_log = logs_df.iloc[0]
+            log_file = os.path.expanduser(f"~/japan-realestate/logs/{latest_log['filename']}")
+            try:
+                with open(log_file, 'r') as f:
+                    content = f.read()
+                    lines = content.split('\n')
+                    tail_lines = lines[-30:]  # Last 30 lines
+                    st.code('\n'.join(tail_lines), language='text')
+            except Exception as e:
+                st.error(f"Could not read log: {e}")
+        else:
+            st.info("No ingest logs found. Run: `docker exec japan-realestate-app python dbutils/ingest_data.py --full`")
+    else:
+        st.error("Could not load database statistics")
 
 # Footer
 st.divider()
