@@ -730,6 +730,16 @@ def build_query(select_clause, filters, group_by=None, order_by=None, limit=None
 # UI - SIDEBAR FILTERS
 # =============================================================================
 
+# API/MCP info banner at top of sidebar
+with st.sidebar:
+    st.info(
+        "**🔌 Public API Available!**\n\n"
+        "Access our data via REST API or MCP tools.\n\n"
+        "[📖 API Documentation](https://anil.diwi.org/japan-realestate/api-docs.html) • "
+        "[🔗 Swagger Docs](https://anil.diwi.org/japan-realestate/api/docs)"
+    )
+    st.divider()
+
 st.sidebar.header("📍 Location Filters")
 
 # Prefecture
