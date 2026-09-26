@@ -9,7 +9,7 @@ A Streamlit dashboard + FastAPI backend for exploring Japanese real estate trans
 
 ## Features
 
-- **6.1M+ transactions** from all 47 prefectures dating back to 2005
+- **5.8M+ transactions** from all 47 prefectures dating back to 2005
 - **Interactive charts**: Time series, histograms, scatter plots with regression
 - **Price comparisons**: By ward/city with bar charts and treemaps
 - **Age cohort analysis**: Track how prices evolve for buildings of different ages

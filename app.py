@@ -1783,7 +1783,21 @@ def get_property_type_trends(filters):
 # =============================================================================
 
 st.title("🏠 Japan Real Estate Analytics")
-st.caption("Data source: MLIT Real Estate Information Library | 6.1M+ transactions")
+
+# Get total transaction count
+@st.cache_data(ttl=86400)
+def get_total_transactions():
+    """Get total transactions in database."""
+    try:
+        query = "SELECT COUNT(*) as count FROM transactions"
+        result = run_query(query)
+        return result['count'].iloc[0] if not result.empty else 0
+    except:
+        return 0
+
+total_txns = get_total_transactions()
+txn_display = f"{total_txns / 1e6:.1f}M" if total_txns >= 1e6 else f"{total_txns / 1e3:.0f}K"
+st.caption(f"Data source: MLIT Real Estate Information Library | {txn_display}+ transactions")
 
 # Summary stats
 col1, col2, col3, col4 = st.columns(4)
