@@ -239,7 +239,7 @@ st.set_page_config(
 
 # Tab state management via query params
 TAB_NAMES = ["charts", "map", "cohorts", "micro", "valuation", "insights", "data", "quality"]
-TAB_LABELS = ["📈 Charts", "🗺️ Map", "📊 Cohorts", "📍 District", "💰 Valuation", "🔭 Insights", "📋 Raw Data", "📊 Data Audit"]
+TAB_LABELS = ["📈 Charts", "🗺️ Map", "📊 Cohorts", "📍 District", "💰 Valuation", "🔭 Insights", "🔌 API & MCP", "📊 Data Audit"]
 
 INSIGHT_CHOICES = {
     "🔧 Renovation Premium Crossover":        "renovation",
@@ -3166,7 +3166,77 @@ elif selected_tab == "💰 Valuation":
                 st.info("👈 Enter your property details and click **Calculate Depreciation**")
 
 # ============= RAW DATA TAB =============
-elif selected_tab == "📋 Raw Data":
+elif selected_tab == "🔌 API & MCP":
+    st.subheader("Programmatic Access")
+
+    st.markdown("""
+    This API is **fully public** — no authentication required! Use it for analysis, agents, and third-party applications.
+
+    ## Rate Limits
+    - **100 requests/minute per IP** (fair usage)
+    - Returns HTTP 429 when exceeded
+    - Resets automatically after 60 seconds
+    """)
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        st.markdown("""
+        ### 🔌 REST API
+
+        **Base URL:** `http://localhost:8000`
+
+        **Endpoints:**
+        - `/prefectures` — All prefectures
+        - `/transactions?...` — Search deals
+        - `/price-trends?...` — Time series
+        - `/price-by-district?...` — Compare neighborhoods
+        - `/median-price?...` — Latest stats
+
+        **Example:**
+        ```bash
+        curl "http://localhost:8000/transactions?\\
+          prefecture_code=13&\\
+          property_types=Apartment&\\
+          limit=10"
+        ```
+
+        **Docs:** http://localhost:8000/docs
+        """)
+
+    with col2:
+        st.markdown("""
+        ### 🤖 MCP (AI Agents)
+
+        **Tools for Claude, GPT, and AI agents**
+
+        **Discover tools:**
+        ```bash
+        curl http://localhost:8000/mcp/tools
+        ```
+
+        **Call a tool:**
+        ```bash
+        curl -X POST \\
+          http://localhost:8000/mcp/call/search_transactions \\
+          -d '{
+            "prefecture_code": "13",
+            "property_types": "Apartment",
+            "limit": 5
+          }'
+        ```
+
+        **Available tools:**
+        - search_transactions
+        - get_price_trends
+        - get_district_prices
+        - get_median_price
+        - list_prefectures
+        - list_municipalities
+        - get_statistics
+        """)
+
+    st.divider()
     st.subheader("Sample Transactions")
 
     sample_query, sample_params = build_query(
