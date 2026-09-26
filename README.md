@@ -65,7 +65,17 @@ Then open:
 
 ## Using the API (Port 8000)
 
-The **FastAPI backend (port 8000)** provides a REST API for programmatic access. Three ways to use it:
+The **FastAPI backend (port 8000)** provides a public REST API. **No authentication required!** Rate limiting is IP-based.
+
+### Rate Limits
+
+- **100 requests per minute per IP** (1.67 requests/second)
+- **Burst allowed**: Up to 200 requests before rate limiting
+- **Returns HTTP 429** when limit exceeded
+- Rate limit headers included in all responses:
+  - `X-RateLimit-Limit`: 100
+  - `X-RateLimit-Remaining`: requests left in current minute
+  - `X-RateLimit-Reset`: Unix timestamp when limit resets
 
 ### 1. Interactive Docs
 
@@ -121,6 +131,19 @@ curl "http://localhost:8000/transactions?prefecture_code=26&property_types=House
 
 # Get price trends (yearly)
 curl "http://localhost:8000/price-trends?prefecture_code=13&frequency=Yearly"
+```
+
+### Check Rate Limit Status
+
+Response headers show your rate limit status:
+
+```bash
+curl -i http://localhost:8000/prefectures
+
+# Look for:
+# X-RateLimit-Limit: 100
+# X-RateLimit-Remaining: 99
+# X-RateLimit-Reset: 1695206460
 ```
 
 ---
@@ -575,137 +598,71 @@ print(f"\nTokyo is {price_ratio:.1f}x more expensive than Kyoto")
 
 ---
 
-## Security & Monitoring
+## Rate Limiting
 
-### Protecting the Public API
+The public API uses **IP-based rate limiting** for fairness.
 
-Since the API is exposed via nginx, it includes multiple security layers:
+### Limits
 
-**1. API Key Authentication**
-```bash
-# Every request requires an API key header
-curl -H "X-API-Key: your-api-key" http://api.example.com/transactions
+| Limit | Value |
+|-------|-------|
+| Requests per minute | 100 |
+| Burst allowed | 200 |
+| Window | 1 minute |
+| Status code when exceeded | 429 (Too Many Requests) |
+
+### What counts?
+
+All API requests count toward the limit, except `/health`.
+
+### What to do if rate limited?
+
+1. **Wait 1 minute** — The limit resets automatically
+2. **Reduce request frequency** — Batch queries when possible
+3. **Use pagination** — Fetch less data per request with `limit` parameter
+4. **Cache results** — Store responses locally to avoid repeated requests
+
+### Example rate limit headers
+
+Every response includes:
+
+```
+X-RateLimit-Limit: 100
+X-RateLimit-Remaining: 87
+X-RateLimit-Reset: 1695206460
 ```
 
-**2. Rate Limiting (per API key, per hour)**
-- Claude Agent: 5,000 requests/hour
-- Streamlit Dashboard: 2,000 requests/hour
-- Public Demo: 100 requests/hour
-- Returns HTTP 429 if exceeded
+Meaning: 100 total, 87 requests remaining, resets at Unix timestamp 1695206460.
 
-**3. nginx Protection**
-- SSL/TLS encryption (required)
-- IP-based rate limiting (10 req/sec per IP)
-- Security headers (XSS, clickjacking protection)
+### nginx Configuration for Production
 
-**4. Request Validation**
-- Pydantic validates all input parameters
-- Prevents injection attacks
-
-### Setup Production Security (one-time)
-
-```bash
-export REQUIRE_API_KEY=true
-export ADMIN_KEY="your-secure-admin-key"
-export CORS_ORIGINS="https://yourapp.com"
-docker compose restart api
-```
-
-### Create API Keys
-
-```bash
-ADMIN_KEY="your-secure-admin-key"
-
-# Create key for Claude agent
-curl -X POST http://localhost:8000/admin/keys/add \
-  -H "X-API-Key: $ADMIN_KEY" \
-  -d '{"name": "Claude", "quota_per_hour": 5000}'
-
-# Create key for public demo (limited)
-curl -X POST http://localhost:8000/admin/keys/add \
-  -H "X-API-Key: $ADMIN_KEY" \
-  -d '{"name": "Public Demo", "quota_per_hour": 100}'
-```
-
-### nginx Configuration
+If deploying behind nginx:
 
 ```nginx
 server {
     listen 443 ssl;
     server_name api.example.com;
-    
+
     ssl_certificate /path/to/cert.pem;
     ssl_certificate_key /path/to/key.pem;
-    
-    # Rate limiting
-    limit_req_zone $http_x_api_key zone=api_limit:10m rate=100r/s;
+
+    # Rate limit per IP: 100 req/min (burst up to 200)
+    limit_req_zone $binary_remote_addr zone=api_limit:10m rate=100r/m;
     limit_req zone=api_limit burst=200 nodelay;
-    
+
     # Security headers
     add_header X-Content-Type-Options "nosniff" always;
     add_header X-Frame-Options "DENY" always;
     add_header Strict-Transport-Security "max-age=31536000" always;
-    
-    # Require API key on all endpoints
+
+    # Proxy all requests
     location / {
-        if ($http_x_api_key = "") { return 403; }
         proxy_pass http://localhost:8000;
-    }
-    
-    # Exception: health check (no key needed)
-    location /health {
-        proxy_pass http://localhost:8000;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
     }
 }
 ```
-
-### Monitoring Usage
-
-**View all metrics** (requires admin key):
-```bash
-ADMIN_KEY="your-secure-admin-key"
-curl -H "X-API-Key: $ADMIN_KEY" http://localhost:8000/admin/metrics | jq
-```
-
-Response shows per-API-key: requests, errors, avg response time, error rate
-
-**Check system status**:
-```bash
-curl -H "X-API-Key: $ADMIN_KEY" http://localhost:8000/admin/status | jq
-```
-
-**View logs in real-time**:
-```bash
-tail -f /var/log/japan-realestate/api.log
-
-# Filter for errors
-grep ERROR /var/log/japan-realestate/api.log
-
-# Filter for rate limit violations
-grep "Rate limit" /var/log/japan-realestate/api.log
-```
-
-### Managing API Keys
-
-**Revoke a key** (if compromised):
-```bash
-curl -X POST http://localhost:8000/admin/keys/revoke \
-  -H "X-API-Key: $ADMIN_KEY" \
-  -d '{"api_key": "key_to_revoke"}'
-```
-
-**Check a key's usage before revoking**:
-```bash
-curl -H "X-API-Key: $ADMIN_KEY" \
-  "http://localhost:8000/admin/metrics?api_key=claude-key" | jq
-```
-
-### Responding to Abuse
-
-1. **Check logs**: `grep "Rate limit" /var/log/japan-realestate/api.log`
-2. **Review metrics**: `curl -H "X-API-Key: $ADMIN_KEY" http://localhost:8000/admin/metrics`
-3. **Revoke if needed**: `/admin/keys/revoke`
-4. **Lower quota or rotate key** if legitimate user exceeded limit
 
 ---
 

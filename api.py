@@ -19,8 +19,8 @@ import requests
 from functools import lru_cache
 import time
 
-# Import security middleware
-from api_security import add_security_middleware, add_admin_endpoints, logger
+# Import rate limiting middleware
+from api_security import add_rate_limit_middleware, logger
 
 # =============================================================================
 # CONFIG
@@ -31,31 +31,27 @@ DATABASE_URL = os.environ.get(
     "postgresql://localhost/mlit_realestate"
 )
 
-REQUIRE_API_KEY = os.getenv("REQUIRE_API_KEY", "true").lower() == "true"
-
 app = FastAPI(
     title="Japan Real Estate Analytics API",
-    description="REST API for exploring Japanese real estate transaction data",
+    description="REST API for exploring Japanese real estate transaction data (public, no authentication required)",
     version="1.0.0",
-    docs_url="/docs" if not REQUIRE_API_KEY else None,
-    redoc_url="/redoc" if not REQUIRE_API_KEY else None,
+    docs_url="/docs",
+    redoc_url="/redoc",
 )
 
-# Enable CORS (restrict in production)
+# Enable CORS
 allowed_origins = os.getenv("CORS_ORIGINS", "*").split(",")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
-    allow_headers=["*", "X-API-Key"],
+    allow_headers=["*"],
 )
 
-# Add security middleware if enabled
-if REQUIRE_API_KEY:
-    add_security_middleware(app)
-    add_admin_endpoints(app)
-    logger.info("Security middleware enabled")
+# Add rate limiting middleware
+add_rate_limit_middleware(app)
+logger.info("Rate limiting middleware enabled")
 
 # =============================================================================
 # CONSTANTS
