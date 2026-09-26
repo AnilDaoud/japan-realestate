@@ -12,10 +12,12 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application code
 COPY app.py .
+COPY api.py .
+COPY api_client.py .
 COPY dbutils/ ./dbutils/
 
-EXPOSE 9001
+EXPOSE 8000 9001
 
-HEALTHCHECK CMD curl --fail http://localhost:9001/_stcore/health || exit 1
+HEALTHCHECK CMD curl --fail http://localhost:8000/health || exit 1
 
 CMD ["streamlit", "run", "app.py", "--server.port=9001", "--server.address=0.0.0.0"]

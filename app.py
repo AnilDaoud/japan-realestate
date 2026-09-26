@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """
 MLIT Real Estate Dashboard
 ==========================
@@ -31,12 +32,12 @@ MATOMO_URL = os.getenv("MATOMO_URL", "")        # Optional: set via environment 
 # =============================================================================
 
 TOOLTIPS = {
-    "tsubo": "Tsubo (坪) is a traditional Japanese unit of area. 1 tsubo ≈ 3.31 m² ≈ 35.58 sq ft. Common in real estate listings.",
+    "tsubo": "Tsubo (坪) is a traditional Japanese unit of area. 1 tsubo ≈ 3.31 m2 ≈ 35.58 sq ft. Common in real estate listings.",
     "ldk": "Japanese floor plan notation: L=Living room, D=Dining room, K=Kitchen. Example: 2LDK = 2 bedrooms + Living/Dining/Kitchen area.",
     "mansion": "In Japan, 'mansion' (マンション) refers to a concrete apartment/condo building, not a large house.",
     "chome": "Chome (丁目) is a subdivision of a district, like a block number. Example: Roppongi 1-chome.",
     "rc": "RC = Reinforced Concrete. SRC = Steel Reinforced Concrete. These are common building structure types in Japan.",
-    "unit_price": "Price per square meter (¥/m²) or per tsubo. This normalizes prices across different unit sizes for comparison.",
+    "unit_price": "Price per square meter (¥/m2) or per tsubo. This normalizes prices across different unit sizes for comparison.",
     "building_age": "Years since construction. Older buildings typically depreciate, but location and maintenance matter.",
     "coverage_ratio": "Building Coverage Ratio (建蔽率): Max % of land that can be covered by buildings. Set by zoning.",
     "floor_area_ratio": "Floor Area Ratio (容積率): Max total floor area as % of land area. Higher = taller buildings allowed.",
@@ -46,7 +47,7 @@ TOOLTIPS = {
 # CONSTANTS
 # =============================================================================
 
-# Conversion: 1 tsubo = 3.30579 m²
+# Conversion: 1 tsubo = 3.30579 m2
 TSUBO_TO_M2 = 3.30579
 M2_TO_TSUBO = 1 / TSUBO_TO_M2
 
@@ -166,7 +167,7 @@ def generate_valuation_pdf(valuation_data):
                 <tr><th>Location</th><td>{valuation_data.get('location', 'N/A')}</td></tr>
                 <tr><th>District</th><td>{valuation_data.get('district', 'N/A')}</td></tr>
                 <tr><th>Property Type</th><td>{valuation_data.get('property_type', 'N/A')}</td></tr>
-                <tr><th>Area</th><td>{valuation_data.get('area', 0):.1f} m² ({valuation_data.get('area', 0) * M2_TO_TSUBO:.1f} tsubo)</td></tr>
+                <tr><th>Area</th><td>{valuation_data.get('area', 0):.1f} m2 ({valuation_data.get('area', 0) * M2_TO_TSUBO:.1f} tsubo)</td></tr>
                 <tr><th>Year Built</th><td>{valuation_data.get('building_year', 'N/A')}</td></tr>
                 <tr><th>Building Age</th><td>{valuation_data.get('building_age', 'N/A')} years</td></tr>
                 <tr><th>Layout</th><td>{valuation_data.get('floor_plan', 'N/A')}</td></tr>
@@ -182,7 +183,7 @@ def generate_valuation_pdf(valuation_data):
                 <tr class="highlight"><th>Estimated Market Value</th><td>¥{valuation_data.get('estimated_value', 0):,.0f}</td></tr>
                 <tr><th>Low Estimate</th><td>¥{valuation_data.get('low_estimate', 0):,.0f}</td></tr>
                 <tr><th>High Estimate</th><td>¥{valuation_data.get('high_estimate', 0):,.0f}</td></tr>
-                <tr><th>Median Price per m²</th><td>¥{valuation_data.get('median_price_m2', 0):,.0f}</td></tr>
+                <tr><th>Median Price per m2</th><td>¥{valuation_data.get('median_price_m2', 0):,.0f}</td></tr>
                 <tr><th>Comparable Transactions</th><td>{valuation_data.get('comparable_count', 0)}</td></tr>
             </table>
         </div>
@@ -192,7 +193,7 @@ def generate_valuation_pdf(valuation_data):
             <h2>Listing Analysis</h2>
             <table>
                 <tr><th>Listing Price</th><td>¥{valuation_data.get('listing_price', 0):,.0f}</td></tr>
-                <tr><th>Listing Price per m²</th><td>¥{valuation_data.get('listing_price_m2', 0):,.0f}</td></tr>
+                <tr><th>Listing Price per m2</th><td>¥{valuation_data.get('listing_price_m2', 0):,.0f}</td></tr>
                 <tr><th>Difference from Market</th><td>¥{valuation_data.get('price_diff', 0):+,.0f} ({valuation_data.get('price_diff_pct', 0):+.1f}%)</td></tr>
                 <tr><th>Price Percentile</th><td>{valuation_data.get('percentile', 0):.0f}%</td></tr>
             </table>
@@ -328,17 +329,13 @@ def get_data_quality_filter(quality_mode="exclude_critical"):
         return "", []
     elif quality_mode == "exclude_critical":
         return """
-            AND t.id NOT IN (
-                SELECT transaction_id FROM data_quality_flags
-                WHERE issue_code IN ('sentinel_area_9999', 'sentinel_area_8888', 'sentinel_price_extreme_low',
-                                      'missing_both_location')
-            )
-        """, []  # Excludes: area=9999, area=8888, price<1k, missing location
+            AND t.area_m2 NOT IN (9999, 8888)
+            AND t.area_m2 > 0
+            AND t.trade_price >= 1000
+        """, []
     elif quality_mode == "only_suspicious":
         return """
-            AND t.id IN (
-                SELECT transaction_id FROM data_quality_flags
-            )
+            AND (t.area_m2 IN (9999, 8888) OR t.area_m2 <= 0 OR t.trade_price < 1000)
         """, []
     return "", []
 
@@ -707,17 +704,13 @@ def build_query(select_clause, filters, group_by=None, order_by=None, limit=None
     quality_filter = filters.get('quality_filter', 'exclude_critical')
     if quality_filter == 'exclude_critical':
         conditions.append("""
-            t.id NOT IN (
-                SELECT transaction_id FROM data_quality_flags
-                WHERE issue_code IN ('sentinel_area_9999', 'sentinel_area_8888', 'sentinel_price_extreme_low',
-                                      'missing_both_location')
-            )
+            t.area_m2 NOT IN (9999, 8888)
+            AND t.area_m2 > 0
+            AND t.trade_price >= 1000
         """)
     elif quality_filter == 'only_suspicious':
         conditions.append("""
-            t.id IN (
-                SELECT transaction_id FROM data_quality_flags
-            )
+            (t.area_m2 IN (9999, 8888) OR t.area_m2 <= 0 OR t.trade_price < 1000)
         """)
 
     query += " WHERE " + " AND ".join(conditions)
@@ -873,7 +866,7 @@ st.sidebar.header("📏 Size Filters")
 
 # Area range
 area_range = st.sidebar.slider(
-    "Area (m²)",
+    "Area (m2)",
     min_value=0,
     max_value=500,
     value=(0, 500),
@@ -897,7 +890,7 @@ price_range = price_range if price_range != (0, 500) else None
 
 # Price per m2 (万円)
 price_m2_range = st.sidebar.slider(
-    "Price per m² (¥ 万)",
+    "Price per m2 (¥ 万)",
     min_value=0,
     max_value=500,
     value=(0, 500),
@@ -949,12 +942,12 @@ chart_mode = st.sidebar.radio(
 if chart_mode == "Scatter (X vs Y)":
     scatter_x = st.sidebar.selectbox(
         "X Axis",
-        options=["Building Age", "Area (m²)", "Year Built", "Transaction Year"],
+        options=["Building Age", "Area (m2)", "Year Built", "Transaction Year"],
         index=0
     )
     scatter_y = st.sidebar.selectbox(
         "Y Axis",
-        options=["Price per m²", "Total Price"],
+        options=["Price per m2", "Total Price"],
         index=0
     )
 else:
@@ -963,7 +956,7 @@ else:
 
 st.sidebar.header("🔄 Display Options")
 
-# Price unit toggle (m² vs tsubo)
+# Price unit toggle (m2 vs tsubo)
 # Get display options from URL params
 url_params = st.query_params
 url_tsubo = url_params.get("tsubo", "0") == "1"
@@ -973,7 +966,7 @@ url_currency_idx = currency_options.index(url_currency) if url_currency in curre
 
 price_unit = st.sidebar.radio(
     "Price Unit",
-    options=["per m²", "per tsubo"],
+    options=["per m2", "per tsubo"],
     index=1 if url_tsubo else 0,
     horizontal=True,
     help=TOOLTIPS["tsubo"]
@@ -1057,7 +1050,7 @@ def convert_price(price_jpy, year=None, quarter=None):
     return price * rate
 
 def convert_to_tsubo(price_per_m2):
-    """Convert price/m² to price/tsubo."""
+    """Convert price/m2 to price/tsubo."""
     if price_per_m2 is None:
         return None
     return price_per_m2 * TSUBO_TO_M2
@@ -1086,7 +1079,7 @@ def format_price(price, year=None, quarter=None, is_unit_price=True):
 
 def get_unit_label():
     """Get the current unit label for charts."""
-    unit = "tsubo" if use_tsubo else "m²"
+    unit = "tsubo" if use_tsubo else "m2"
     if use_fx:
         return f"{currency}/{unit}"
     return f"¥/{unit}"
@@ -1193,10 +1186,10 @@ def get_age_vs_price_by_area(filters):
     select = """
         (t.transaction_year - t.building_year) as building_age,
         CASE
-            WHEN t.area_m2 < 40 THEN 'Small (<40m²)'
-            WHEN t.area_m2 < 70 THEN 'Medium (40-70m²)'
-            WHEN t.area_m2 < 100 THEN 'Large (70-100m²)'
-            ELSE 'XL (100m²+)'
+            WHEN t.area_m2 < 40 THEN 'Small (<40m2)'
+            WHEN t.area_m2 < 70 THEN 'Medium (40-70m2)'
+            WHEN t.area_m2 < 100 THEN 'Large (70-100m2)'
+            ELSE 'XL (100m2+)'
         END as size_category,
         ROUND(AVG(t.unit_price)) as avg_price_m2,
         COUNT(*) as count
@@ -2010,8 +2003,8 @@ if selected_tab == "📈 Charts":
                 hist_data,
                 x='unit_price',
                 nbins=50,
-                title='Distribution of Price per m²',
-                labels={'unit_price': 'Price per m² (¥)', 'count': 'Count'}
+                title='Distribution of Price per m2',
+                labels={'unit_price': 'Price per m2 (¥)', 'count': 'Count'}
             )
             fig.update_layout(
                 xaxis_tickformat=',',
@@ -2022,8 +2015,8 @@ if selected_tab == "📈 Charts":
             # Stats
             stat_col1, stat_col2, stat_col3, stat_col4 = st.columns(4)
             stat_col1.metric("Count", f"{len(hist_data):,}")
-            stat_col2.metric("Median", f"¥{hist_data['unit_price'].median():,.0f}/m²")
-            stat_col3.metric("Mean", f"¥{hist_data['unit_price'].mean():,.0f}/m²")
+            stat_col2.metric("Median", f"¥{hist_data['unit_price'].median():,.0f}/m2")
+            stat_col3.metric("Mean", f"¥{hist_data['unit_price'].mean():,.0f}/m2")
             stat_col4.metric("Std Dev", f"¥{hist_data['unit_price'].std():,.0f}")
         else:
             st.warning("No data available for selected filters")
@@ -2038,12 +2031,12 @@ if selected_tab == "📈 Charts":
             # Map axis selections to column names
             x_col_map = {
                 "Building Age": "building_age",
-                "Area (m²)": "area_m2",
+                "Area (m2)": "area_m2",
                 "Year Built": "building_year",
                 "Transaction Year": "transaction_year"
             }
             y_col_map = {
-                "Price per m²": "unit_price",
+                "Price per m2": "unit_price",
                 "Total Price": "trade_price"
             }
 
@@ -2083,9 +2076,9 @@ if selected_tab == "📈 Charts":
                             valid[y_col]
                         )
                         if x_col == "building_age":
-                            st.info(f"**Regression:** {scatter_y} changes by ¥{slope:,.0f} per year of age (R² = {r_value**2:.3f})")
+                            st.info(f"**Regression:** {scatter_y} changes by ¥{slope:,.0f} per year of age (R2 = {r_value**2:.3f})")
                         else:
-                            st.info(f"**Regression:** R² = {r_value**2:.3f}")
+                            st.info(f"**Regression:** R2 = {r_value**2:.3f}")
             else:
                 st.warning("No valid data for the selected axes")
         else:
@@ -2228,11 +2221,11 @@ elif selected_tab == "📊 Cohorts":
 
     elif cohort_type == "Property Size":
         size_options = {
-            "Compact (≤30m²)": (0, 30),
-            "Small (>30-50m²)": (30, 50),
-            "Medium (>50-70m²)": (50, 70),
-            "Large (>70-100m²)": (70, 100),
-            "XL (>100m²)": (100, 9999),
+            "Compact (≤30m2)": (0, 30),
+            "Small (>30-50m2)": (30, 50),
+            "Medium (>50-70m2)": (50, 70),
+            "Large (>70-100m2)": (70, 100),
+            "XL (>100m2)": (100, 9999),
         }
         selected_cohort_names = st.multiselect(
             "Size Cohorts",
@@ -2525,7 +2518,7 @@ elif selected_tab == "📊 Cohorts":
                     elif cohort_type == "Property Size":
                         st.info("""
                         **How to read this chart:**
-                        Each line shows the median price/m² for properties within a size range.
+                        Each line shows the median price/m2 for properties within a size range.
 
                         Comparing sizes helps identify:
                         - Premium pricing for certain size segments
@@ -2535,7 +2528,7 @@ elif selected_tab == "📊 Cohorts":
                     else:  # Total Price
                         st.info("""
                         **How to read this chart:**
-                        Each line shows the median price/m² for transactions within a total price range.
+                        Each line shows the median price/m2 for transactions within a total price range.
 
                         This helps identify:
                         - Whether luxury segment is driving averages up while mainstream stagnates
@@ -2820,7 +2813,7 @@ elif selected_tab == "💰 Valuation":
             )
 
         val_area = st.number_input(
-            "Area (m²)",
+            "Area (m2)",
             min_value=10.0,
             max_value=500.0,
             value=60.0,
@@ -2929,8 +2922,8 @@ elif selected_tab == "💰 Valuation":
                         | **Years Held** | {years_held} years |
                         | **Age at Purchase** | {age_at_purchase} years old |
                         | **Age Now** | {age_now} years old |
-                        | **Market Price/m² (at purchase)** | ¥{purchase_price_m2:,.0f} |
-                        | **Market Price/m² (now)** | ¥{current_price_m2:,.0f} |
+                        | **Market Price/m2 (at purchase)** | ¥{purchase_price_m2:,.0f} |
+                        | **Market Price/m2 (now)** | ¥{current_price_m2:,.0f} |
                         """)
 
                         # Show historical trend
@@ -2942,8 +2935,8 @@ elif selected_tab == "💰 Valuation":
                             x='transaction_year',
                             y='median_price_m2',
                             markers=True,
-                            title='Median Price/m² Over Time',
-                            labels={'median_price_m2': '¥/m²', 'transaction_year': 'Year'}
+                            title='Median Price/m2 Over Time',
+                            labels={'median_price_m2': '¥/m2', 'transaction_year': 'Year'}
                         )
 
                         # Add markers for purchase and current
@@ -3024,7 +3017,7 @@ elif selected_tab == "💰 Valuation":
                         st.metric(
                             "Estimated Market Value",
                             f"¥{estimated_price_median:,.0f}",
-                            help="Based on median price per m² of comparable transactions"
+                            help="Based on median price per m2 of comparable transactions"
                         )
 
                         st.markdown(f"""
@@ -3033,7 +3026,7 @@ elif selected_tab == "💰 Valuation":
                         | **Low Estimate** | ¥{max(0, low_estimate):,.0f} |
                         | **Median Estimate** | ¥{estimated_price_median:,.0f} |
                         | **High Estimate** | ¥{high_estimate:,.0f} |
-                        | **Price per m² (Median)** | ¥{median_unit_price:,.0f} |
+                        | **Price per m2 (Median)** | ¥{median_unit_price:,.0f} |
                         | **Comparable Transactions** | {len(comparables)} |
                         """)
 
@@ -3068,8 +3061,8 @@ elif selected_tab == "💰 Valuation":
                         | Metric | Value |
                         |--------|-------|
                         | **Listing Price** | ¥{val_listing_price:,.0f} |
-                        | **Listing ¥/m²** | ¥{listing_price_per_m2:,.0f} |
-                        | **Market Median ¥/m²** | ¥{median_unit_price:,.0f} |
+                        | **Listing ¥/m2** | ¥{listing_price_per_m2:,.0f} |
+                        | **Market Median ¥/m2** | ¥{median_unit_price:,.0f} |
                         | **Fair Value Estimate** | ¥{fair_value:,.0f} |
                         | **Difference** | ¥{price_diff:+,.0f} ({price_diff_pct:+.1f}%) |
                         | **Price Percentile** | {percentile:.0f}% |
@@ -3086,8 +3079,8 @@ elif selected_tab == "💰 Valuation":
                     st.dataframe(
                         display_data.style.format({
                             'trade_price': '¥{:,.0f}',
-                            'unit_price': '¥{:,.0f}/m²',
-                            'area_m2': '{:.1f}m²',
+                            'unit_price': '¥{:,.0f}/m2',
+                            'area_m2': '{:.1f}m2',
                             'building_age': '{:.0f}yr'
                         }),
                         width="stretch",
@@ -3100,7 +3093,7 @@ elif selected_tab == "💰 Valuation":
                         x='unit_price',
                         nbins=20,
                         title='Price Distribution of Comparable Properties',
-                        labels={'unit_price': 'Price per m² (¥)'}
+                        labels={'unit_price': 'Price per m2 (¥)'}
                     )
                     fig.add_vline(x=median_unit_price, line_dash="dash", line_color="green",
                                  annotation_text=f"Median: ¥{median_unit_price:,.0f}")
@@ -3229,7 +3222,7 @@ elif selected_tab == "📋 Raw Data":
         currency_symbol = {'JPY': '¥', 'USD': '$', 'EUR': '€', 'GBP': '£'}.get(currency, '¥')
         display_df.columns = ['Year', 'Quarter', 'District', 'Property Type',
                              f'Total Price ({currency_symbol})', f'Price ({unit_label})',
-                             'Area (m²)', 'Year Built', 'Layout', 'Structure']
+                             'Area (m2)', 'Year Built', 'Layout', 'Structure']
 
         rows_per_page = 50
         total_pages = (len(display_df) // rows_per_page) + (1 if len(display_df) % rows_per_page else 0)
@@ -3248,7 +3241,7 @@ elif selected_tab == "📋 Raw Data":
             page_df.style.format({
                 f'Total Price ({currency_symbol})': '{:,.0f}',
                 f'Price ({unit_label})': '{:,.0f}',
-                'Area (m²)': '{:.1f}'
+                'Area (m2)': '{:.1f}'
             }),
             width="stretch",
             height=500,
@@ -3363,11 +3356,11 @@ elif selected_tab == "📊 Data Audit":
         total_result = run_query(total_query)
         total_count = int(total_result['count'].iloc[0]) if not total_result.empty else 0
 
-        # Get flagged records (exclude normal missing municipality codes)
+        # Get flagged records (area/price anomalies)
         flagged_query = """
-            SELECT COUNT(DISTINCT transaction_id) as count
-            FROM data_quality_flags
-            WHERE issue_code != 'missing_municipality_code'
+            SELECT COUNT(*) as count
+            FROM transactions
+            WHERE area_m2 IN (9999, 8888) OR area_m2 <= 0 OR trade_price < 1000
         """
         flagged_result = run_query(flagged_query)
         flagged_count = int(flagged_result['count'].iloc[0]) if not flagged_result.empty else 0
@@ -3379,18 +3372,24 @@ elif selected_tab == "📊 Data Audit":
     with col3:
         st.metric("Clean Records", f"{total_count - flagged_count:,}")
 
-    # Issue breakdown (exclude normal cases like missing municipality code but has district)
+    # Issue breakdown by type
     st.subheader("Issues by Type")
 
-    issue_query = """
-        SELECT issue_code, COUNT(*) as count, issue_description
-        FROM data_quality_flags
-        WHERE issue_code != 'missing_municipality_code'
-        GROUP BY issue_code, issue_description
-        ORDER BY count DESC
-    """
+    issue_cases = [
+        ("Sentinel area (9999)", "area_m2 = 9999"),
+        ("Sentinel area (8888)", "area_m2 = 8888"),
+        ("Invalid area (<= 0)", "area_m2 <= 0"),
+        ("Extreme low price (< 1000 JPY)", "trade_price < 1000"),
+    ]
 
-    issues_df = run_query(issue_query)
+    issue_data = []
+    for issue_name, condition in issue_cases:
+        query = f"SELECT COUNT(*) as count FROM transactions WHERE {condition}"
+        result = run_query(query)
+        count = int(result['count'].iloc[0]) if not result.empty else 0
+        issue_data.append({"issue_code": issue_name, "count": count})
+
+    issues_df = pd.DataFrame(issue_data) if issue_data else pd.DataFrame()
     if not issues_df.empty:
         # Create a chart
         chart_data = issues_df[['issue_code', 'count']].sort_values('count', ascending=True)
@@ -3398,8 +3397,8 @@ elif selected_tab == "📊 Data Audit":
 
         # Show detailed table
         st.dataframe(
-            issues_df[['issue_code', 'count', 'issue_description']].rename(
-                columns={'issue_code': 'Issue Type', 'count': 'Records Affected', 'issue_description': 'Description'}
+            issues_df[['issue_code', 'count']].rename(
+                columns={'issue_code': 'Issue Type', 'count': 'Records Affected'}
             ),
             use_container_width=True,
             height=300
@@ -3421,26 +3420,44 @@ elif selected_tab == "📊 Data Audit":
 
     # Build query to show suspicious records
     if True:  # Always show records (use filters below)
-        view_query = """
-            SELECT DISTINCT
-                t.id, t.prefecture_code, t.district_name, t.property_type_raw,
-                t.trade_price, t.unit_price, t.area_m2, t.building_year,
-                f.issue_code, f.issue_description
-            FROM transactions t
-            JOIN data_quality_flags f ON t.id = f.transaction_id
-            WHERE f.issue_code != 'missing_municipality_code'
-        """
         view_params = []
 
-        if selected_issues:
-            placeholders = ','.join(['%s'] * len(selected_issues))
-            view_query += f" AND f.issue_code IN ({placeholders})"
-            view_params.extend(selected_issues)
+        # Map issue names to conditions
+        issue_conditions = {
+            "Sentinel area (9999)": "t.area_m2 = 9999",
+            "Sentinel area (8888)": "t.area_m2 = 8888",
+            "Invalid area (<= 0)": "t.area_m2 <= 0",
+            "Extreme low price (< 1000 JPY)": "t.trade_price < 1000",
+        }
 
-        view_query += f" ORDER BY f.issue_code, t.id DESC LIMIT {limit_records}"
+        conditions = ["(t.area_m2 IN (9999, 8888) OR t.area_m2 <= 0 OR t.trade_price < 1000)"]
+
+        if selected_issues:
+            selected_conditions = [issue_conditions.get(issue) for issue in selected_issues]
+            selected_conditions = [c for c in selected_conditions if c]
+            if selected_conditions:
+                conditions = ["(" + " OR ".join(selected_conditions) + ")"]
+
+        where_clause = " WHERE " + " AND ".join(conditions)
+
+        view_query = f"""
+            SELECT
+                t.id, t.prefecture_code, t.district_name, t.property_type_raw,
+                t.trade_price, t.unit_price, t.area_m2, t.building_year,
+                CASE
+                    WHEN t.area_m2 = 9999 THEN 'Sentinel area (9999)'
+                    WHEN t.area_m2 = 8888 THEN 'Sentinel area (8888)'
+                    WHEN t.area_m2 <= 0 THEN 'Invalid area (<= 0)'
+                    WHEN t.trade_price < 1000 THEN 'Extreme low price (< 1000 JPY)'
+                END as issue_code
+            FROM transactions t
+            {where_clause}
+            ORDER BY t.id DESC
+            LIMIT {limit_records}
+        """
 
         with st.spinner(f"Loading up to {limit_records} suspicious records..."):
-            suspicious_df = run_query(view_query, view_params if view_params else None)
+            suspicious_df = run_query(view_query)
 
         if not suspicious_df.empty:
             st.write(f"Showing {len(suspicious_df)} records")
@@ -3468,7 +3485,7 @@ elif selected_tab == "📊 Data Audit":
                     'property_type_raw': 'Type',
                     'trade_price_formatted': 'Price',
                     'unit_price_formatted': 'Unit Price',
-                    'area_m2_formatted': 'Area (m²)',
+                    'area_m2_formatted': 'Area (m2)',
                     'building_year': 'Year Built',
                     'issue_code': 'Issue'
                 }),
@@ -3499,8 +3516,8 @@ elif selected_tab == "📊 Data Audit":
     - **missing_both_location**: Missing both municipality code AND district (actual data quality issue)
 
     **NOT Flagged (Considered Normal/Valid):**
-    - Any unit price (including > ¥5M/m²) — Possible in ultra-premium areas like central Tokyo, especially for land+building combinations
-    - Unit price < ¥500/m² — Valid for agricultural and forest land in remote areas
+    - Any unit price (including > ¥5M/m2) — Possible in ultra-premium areas like central Tokyo, especially for land+building combinations
+    - Unit price < ¥500/m2 — Valid for agricultural and forest land in remote areas
     - Missing municipality_code but has district_name — Normal for regions like Hokkaido where MLIT API doesn't provide municipality codes
     """)
 
@@ -3518,7 +3535,7 @@ elif selected_tab == "🔭 Insights":
     if selected_key == "renovation":
         st.subheader("Renovation Premium Crossover")
         _pref, _munis, scope_caption = _insights_location_filter(filters, "renovation")
-        st.caption(f"{scope_caption} — pre-owned condominiums only | prices in ¥/m²")
+        st.caption(f"{scope_caption} — pre-owned condominiums only | prices in ¥/m2")
         with st.spinner("Loading renovation premium data..."):
             df = get_renovation_premium_data(quality_filter, prefecture_code=_pref, municipality_codes=_munis)
         if not df.empty:
@@ -3529,7 +3546,7 @@ elif selected_tab == "🔭 Insights":
                 color='renovation',
                 markers=True,
                 height=500,
-                labels=dict(age_bucket='Building Age (years)', median_price='Median Unit Price (¥/m²)', renovation='Renovation Status'),
+                labels=dict(age_bucket='Building Age (years)', median_price='Median Unit Price (¥/m2)', renovation='Renovation Status'),
                 title='Renovation Premium: Does Renovating a Condo Pay Off?'
             )
             st.plotly_chart(fig, use_container_width=True)
@@ -3553,15 +3570,15 @@ elif selected_tab == "🔭 Insights":
             ))
             fig.add_trace(go.Scatter(
                 x=df['transaction_year'], y=df['median_price'],
-                name='Median ¥/m²', yaxis='y1', mode='lines+markers',
+                name='Median ¥/m2', yaxis='y1', mode='lines+markers',
                 line=dict(color='#E63946', width=3), marker=dict(size=7),
-                hovertemplate='%{x}: ¥%{y:,.0f}/m²<extra></extra>'
+                hovertemplate='%{x}: ¥%{y:,.0f}/m2<extra></extra>'
             ))
             fig.update_layout(
                 title='Condo Market: Transaction Volume vs. Median Price',
                 height=500,
                 hovermode='x unified',
-                yaxis=dict(title='Median Unit Price (¥/m²)', side='left'),
+                yaxis=dict(title='Median Unit Price (¥/m2)', side='left'),
                 yaxis2=dict(title='Transaction Count', side='right', overlaying='y', showgrid=False),
                 legend=dict(orientation='h', yanchor='bottom', y=1.02, xanchor='right', x=1)
             )
@@ -3583,14 +3600,14 @@ elif selected_tab == "🔭 Insights":
                 y='median_price',
                 markers=True,
                 height=500,
-                labels=dict(building_age='Building Age (years)', median_price='Median Unit Price (¥/m²)'),
+                labels=dict(building_age='Building Age (years)', median_price='Median Unit Price (¥/m2)'),
                 title='Pre-owned Condo Price by Building Age'
             )
             fig.add_vline(x=30, line_dash='dot', line_color='orange', annotation_text='30yr plateau', annotation_position='top right')
             st.plotly_chart(fig, use_container_width=True)
         else:
             st.info("No data available.")
-        st.markdown("**What this shows:** Condo prices in Japan fall ~75% in the first 30 years (from ~¥1M to ~¥250K/m²). After 30 years, prices stabilize — very old buildings still transact at a floor value. Using only recent transactions (2022+) isolates the age effect.")
+        st.markdown("**What this shows:** Condo prices in Japan fall ~75% in the first 30 years (from ~¥1M to ~¥250K/m2). After 30 years, prices stabilize — very old buildings still transact at a floor value. Using only recent transactions (2022+) isolates the age effect.")
 
     elif selected_key == "structure":
         st.subheader("Structure Type Premium")
@@ -3606,7 +3623,7 @@ elif selected_tab == "🔭 Insights":
                 color='structure_group',
                 markers=True,
                 height=500,
-                labels=dict(transaction_year='Year', median_price='Median Unit Price (¥/m²)', structure_group='Structure'),
+                labels=dict(transaction_year='Year', median_price='Median Unit Price (¥/m2)', structure_group='Structure'),
                 title='House Prices by Building Material Over Time'
             )
             fig.update_layout(hovermode='x unified')
@@ -3657,7 +3674,7 @@ elif selected_tab == "🔭 Insights":
                 orientation='h',
                 facet_col='property_type_raw',
                 height=450,
-                labels=dict(median_price='Median Unit Price (¥/m²)', deal_type='Deal Type'),
+                labels=dict(median_price='Median Unit Price (¥/m2)', deal_type='Deal Type'),
                 title='Price Discount by Transaction Type'
             )
             fig.for_each_annotation(lambda a: a.update(text=a.text.split('=')[-1]))
@@ -3685,7 +3702,7 @@ elif selected_tab == "🔭 Insights":
                     orientation='h',
                     height=400,
                     title='Median Price by Land Shape',
-                    labels=dict(median_price='Median Unit Price (¥/m²)', land_shape='Land Shape')
+                    labels=dict(median_price='Median Unit Price (¥/m2)', land_shape='Land Shape')
                 )
                 st.plotly_chart(fig_shape, use_container_width=True)
             else:
@@ -3699,7 +3716,7 @@ elif selected_tab == "🔭 Insights":
                     orientation='h',
                     height=400,
                     title='Median Price by Road Width',
-                    labels=dict(median_price='Median Unit Price (¥/m²)', road_band='Fronting Road Width')
+                    labels=dict(median_price='Median Unit Price (¥/m2)', road_band='Fronting Road Width')
                 )
                 st.plotly_chart(fig_road, use_container_width=True)
             else:
@@ -3722,7 +3739,7 @@ elif selected_tab == "🔭 Insights":
                 color='ward',
                 markers=True,
                 height=550,
-                labels=dict(transaction_year='Year', median_price='Median Unit Price (¥/m²)', ward='Ward'),
+                labels=dict(transaction_year='Year', median_price='Median Unit Price (¥/m2)', ward='Ward'),
                 title='Tokyo Ward Condo Prices: Top 10 Wards'
             )
             fig.update_layout(hovermode='x unified', legend=dict(orientation='h', yanchor='bottom', y=1.02, xanchor='right', x=1))
@@ -3777,7 +3794,7 @@ elif selected_tab == "🔭 Insights":
                 y='far_band',
                 orientation='h',
                 height=400,
-                labels=dict(median_price='Median Unit Price (¥/m²)', far_band='Floor Area Ratio'),
+                labels=dict(median_price='Median Unit Price (¥/m2)', far_band='Floor Area Ratio'),
                 title='Land Value by Zoning Floor Area Ratio',
                 color_discrete_sequence=['#457B9D']
             )
@@ -3788,7 +3805,7 @@ elif selected_tab == "🔭 Insights":
 
     elif selected_key == "rural_surge":
         st.subheader("Post-Pandemic Rural Surge")
-        st.caption("🌐 National data — sidebar location filters are ignored | prices in ¥/m²")
+        st.caption("🌐 National data — sidebar location filters are ignored | prices in ¥/m2")
         with st.spinner("Loading rural surge data..."):
             rural_df = get_rural_surge_data(quality_filter)
         if not rural_df.empty:
@@ -3815,7 +3832,7 @@ elif selected_tab == "🔭 Insights":
 
     elif selected_key == "city_comparison":
         st.subheader("Major Cities Condo Price Comparison")
-        st.caption("🌐 National data — sidebar location filters are ignored | pre-owned condominiums only | year range and quality filter are respected | prices in ¥/m²")
+        st.caption("🌐 National data — sidebar location filters are ignored | pre-owned condominiums only | year range and quality filter are respected | prices in ¥/m2")
         with st.spinner("Loading city comparison data..."):
             city_df = get_city_comparison_data(quality_filter)
         if not city_df.empty and 'city' in city_df.columns:
@@ -3826,7 +3843,7 @@ elif selected_tab == "🔭 Insights":
                 color='city',
                 markers=True,
                 height=500,
-                labels=dict(year='Year', median_price='Median Unit Price (¥/m²)', city='City'),
+                labels=dict(year='Year', median_price='Median Unit Price (¥/m2)', city='City'),
                 title='Major Cities Condo Price Trends'
             )
             fig.update_layout(hovermode='x unified')
@@ -3837,7 +3854,7 @@ elif selected_tab == "🔭 Insights":
 
     elif selected_key == "tokyo_premium":
         st.subheader("Tokyo Premium Gap")
-        st.caption("🌐 National data — sidebar location filters are ignored | prices in ¥/m²")
+        st.caption("🌐 National data — sidebar location filters are ignored | prices in ¥/m2")
         with st.spinner("Loading Tokyo premium data..."):
             tokyo_df = get_tokyo_premium_data(quality_filter)
         if not tokyo_df.empty:
@@ -3865,7 +3882,7 @@ elif selected_tab == "🔭 Insights":
                 fig_abs.update_layout(
                     title='Absolute Prices',
                     xaxis_title='Year',
-                    yaxis_title='Median Unit Price (¥/m²)',
+                    yaxis_title='Median Unit Price (¥/m2)',
                     hovermode='x unified',
                     height=450
                 )
@@ -3887,7 +3904,7 @@ elif selected_tab == "🔭 Insights":
 
     elif selected_key == "property_type":
         st.subheader("Property Type Comparison")
-        st.caption("📍 Respects your sidebar filters — change prefecture or year range to update | prices in ¥/m²")
+        st.caption("📍 Respects your sidebar filters — change prefecture or year range to update | prices in ¥/m2")
         with st.spinner("Loading property type data..."):
             prop_df = get_property_type_trends(filters)
         if not prop_df.empty:
@@ -3902,7 +3919,7 @@ elif selected_tab == "🔭 Insights":
                     color='property_type',
                     markers=True,
                     height=500,
-                    labels=dict(year='Year', median_price='Median Unit Price (¥/m²)', property_type='Property Type'),
+                    labels=dict(year='Year', median_price='Median Unit Price (¥/m2)', property_type='Property Type'),
                     title='Property Type Trends in Selected Location'
                 )
                 fig.update_layout(legend=dict(orientation='h', yanchor='bottom', y=1.02, xanchor='right', x=1))

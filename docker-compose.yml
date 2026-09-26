@@ -7,9 +7,23 @@
 #   docker exec -i japan-realestate-db psql -U postgres -d mlit_realestate < backup.sql
 
 services:
+  api:
+    build: .
+    container_name: japan-realestate-api
+    command: uvicorn api:app --host 0.0.0.0 --port 8000
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=postgresql://postgres:postgres@db:5432/mlit_realestate
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+
   app:
     build: .
     container_name: japan-realestate-app
+    command: streamlit run app.py --server.port=9001
     ports:
       - "9001:9001"
     environment:
