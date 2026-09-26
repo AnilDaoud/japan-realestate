@@ -91,9 +91,9 @@ def run_query(query: str, params: tuple = ()) -> List[Dict[str, Any]]:
 def get_prefectures():
     """Get all prefectures."""
     query = """
-    SELECT DISTINCT prefecture_code, prefecture_name
-    FROM transactions
-    ORDER BY prefecture_name
+    SELECT code as prefecture_code, name_en as prefecture_name
+    FROM prefectures
+    ORDER BY name_en
     """
     results = run_query(query)
     return results
@@ -102,10 +102,10 @@ def get_prefectures():
 def get_municipalities(prefecture_code: str):
     """Get municipalities for a prefecture."""
     query = """
-    SELECT DISTINCT municipality_code, municipality_name, prefecture_code
-    FROM transactions
+    SELECT code as municipality_code, name_en as municipality_name, prefecture_code
+    FROM municipalities
     WHERE prefecture_code = %s
-    ORDER BY municipality_name
+    ORDER BY name_en
     """
     results = run_query(query, (prefecture_code,))
     return results
@@ -116,7 +116,7 @@ def get_districts(municipality_codes: str = Query(...)):
     codes = tuple(municipality_codes.split(","))
     placeholders = ",".join(["%s"] * len(codes))
     query = f"""
-    SELECT DISTINCT district, municipality_code, municipality_name
+    SELECT DISTINCT district_name, municipality_code, municipality_name
     FROM transactions
     WHERE municipality_code IN ({placeholders})
     ORDER BY district
@@ -212,7 +212,7 @@ def get_stats_summary():
         COUNT(*) as total_records,
         COUNT(DISTINCT prefecture_code) as prefectures,
         COUNT(DISTINCT municipality_code) as municipalities,
-        COUNT(DISTINCT district) as districts,
+        COUNT(DISTINCT district_name) as districts,
         MIN(transaction_year) as earliest_year,
         MAX(transaction_year) as latest_year,
         MIN(transaction_quarter) as earliest_quarter,
@@ -258,7 +258,7 @@ def get_transactions(
     if districts:
         district_list = tuple(districts.split(","))
         placeholders = ",".join(["%s"] * len(district_list))
-        conditions.append(f"district IN ({placeholders})")
+        conditions.append(f"district_name IN ({placeholders})")
         params.extend(district_list)
 
     if property_types:
@@ -334,7 +334,7 @@ def get_price_trends(
     if districts:
         district_list = tuple(districts.split(","))
         placeholders = ",".join(["%s"] * len(district_list))
-        conditions.append(f"district IN ({placeholders})")
+        conditions.append(f"district_name IN ({placeholders})")
         params.extend(district_list)
 
     if property_types:
@@ -442,7 +442,7 @@ def get_price_by_district(
 
     query = f"""
     SELECT
-        district,
+        district_name,
         municipality_name,
         COUNT(*) as transaction_count,
         PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY transaction_price) as median_price,
@@ -450,7 +450,7 @@ def get_price_by_district(
         AVG(transaction_price) as avg_price
     FROM transactions
     {where_clause}
-    GROUP BY district, municipality_name
+    GROUP BY district_name, municipality_name
     ORDER BY median_price DESC NULLS LAST
     LIMIT %s
     """
