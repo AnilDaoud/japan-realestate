@@ -28,6 +28,7 @@ services:
       - "9001:9001"
     environment:
       - DATABASE_URL=postgresql://postgres:postgres@db:5432/mlit_realestate
+      - API_BASE_URL=${API_BASE_URL:-http://localhost:8000}
       - MLIT_API_KEY=${MLIT_API_KEY}
       - MATOMO_API_KEY=${MATOMO_API_KEY}
       - MATOMO_URL=${MATOMO_URL}

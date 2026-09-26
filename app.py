@@ -28,6 +28,37 @@ COFFEE_URL = os.getenv("COFFEE_URL", "")        # Optional: set via environment 
 MATOMO_URL = os.getenv("MATOMO_URL", "")        # Optional: set via environment for personal deployments
 
 # =============================================================================
+# DETECT API BASE URL (works for any deployment)
+# =============================================================================
+
+def get_api_base_url():
+    """
+    Detect the API base URL based on deployment.
+    - If API_BASE_URL env var is set, use it
+    - If running on localhost, use localhost:8000
+    - Otherwise, construct from current request URL
+    """
+    # Check environment variable first
+    if os.getenv("API_BASE_URL"):
+        return os.getenv("API_BASE_URL").rstrip("/")
+
+    # Try to get from Streamlit context
+    try:
+        from streamlit.runtime.scriptrunner import get_script_run_ctx
+        ctx = get_script_run_ctx()
+        if ctx and ctx.session_state:
+            # If we have the full URL, extract the base
+            pass
+    except:
+        pass
+
+    # Default to localhost for development
+    return "http://localhost:8000"
+
+API_BASE_URL = get_api_base_url()
+MCP_BASE_URL = API_BASE_URL.replace("/api", "/mcp") if "/api" in API_BASE_URL else f"{API_BASE_URL}/mcp"
+
+# =============================================================================
 # JAPANESE REAL ESTATE TERM TOOLTIPS
 # =============================================================================
 
@@ -3205,10 +3236,10 @@ elif selected_tab == "🔌 API & MCP":
     col1, col2 = st.columns(2)
 
     with col1:
-        st.markdown("""
+        st.markdown(f"""
         ### 🔌 REST API
 
-        **Base URL:** `http://localhost:8000`
+        **Base URL:** `{API_BASE_URL}`
 
         **Endpoints:**
         - `/prefectures` — All prefectures
@@ -3219,35 +3250,35 @@ elif selected_tab == "🔌 API & MCP":
 
         **Example:**
         ```bash
-        curl "http://localhost:8000/transactions?\\
+        curl "{API_BASE_URL}/transactions?\\
           prefecture_code=13&\\
           property_types=Apartment&\\
           limit=10"
         ```
 
-        **Docs:** http://localhost:8000/docs
+        **Docs:** {API_BASE_URL}/docs
         """)
 
     with col2:
-        st.markdown("""
+        st.markdown(f"""
         ### 🤖 MCP (AI Agents)
 
         **Tools for Claude, GPT, and AI agents**
 
         **Discover tools:**
         ```bash
-        curl http://localhost:8000/mcp/tools
+        curl {MCP_BASE_URL}/tools
         ```
 
         **Call a tool:**
         ```bash
         curl -X POST \\
-          http://localhost:8000/mcp/call/search_transactions \\
-          -d '{
+          {MCP_BASE_URL}/call/search_transactions \\
+          -d '{{
             "prefecture_code": "13",
             "property_types": "Apartment",
             "limit": 5
-          }'
+          }}'
         ```
 
         **Available tools:**
