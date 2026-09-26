@@ -237,8 +237,8 @@ st.set_page_config(
 )
 
 # Tab state management via query params
-TAB_NAMES = ["charts", "map", "cohorts", "micro", "valuation", "insights", "data", "quality", "stats"]
-TAB_LABELS = ["📈 Charts", "🗺️ Map", "📊 Cohorts", "📍 District", "💰 Valuation", "🔭 Insights", "📋 Raw Data", "⚠️ Data Quality", "📊 DB Stats"]
+TAB_NAMES = ["charts", "map", "cohorts", "micro", "valuation", "insights", "data", "quality"]
+TAB_LABELS = ["📈 Charts", "🗺️ Map", "📊 Cohorts", "📍 District", "💰 Valuation", "🔭 Insights", "📋 Raw Data", "📊 Data Audit"]
 
 INSIGHT_CHOICES = {
     "🔧 Renovation Premium Crossover":        "renovation",
@@ -313,37 +313,6 @@ def get_db_stats():
         'total_records': int(total),
         'yearly': yearly.to_dict('records')
     }
-
-def get_ingest_logs():
-    """Read recent ingest logs from ~/japan-realestate/logs/."""
-    import glob
-    import os
-
-    log_dir = os.path.expanduser("~/japan-realestate/logs")
-    if not os.path.exists(log_dir):
-        return []
-
-    log_files = sorted(glob.glob(os.path.join(log_dir, "ingest-*.log")), reverse=True)
-
-    logs = []
-    for log_file in log_files[:12]:  # Last 12 months
-        try:
-            stat = os.stat(log_file)
-            filename = os.path.basename(log_file)
-            with open(log_file, 'r') as f:
-                content = f.read()
-                # Try to extract row counts or status from logs
-                success = 'error' not in content.lower() and 'failed' not in content.lower()
-            logs.append({
-                'filename': filename,
-                'timestamp': datetime.fromtimestamp(stat.st_mtime),
-                'success': success,
-                'size_kb': stat.st_size / 1024
-            })
-        except Exception as e:
-            pass
-
-    return logs
 
 def get_data_quality_filter(quality_mode="exclude_critical"):
     """
@@ -3297,15 +3266,93 @@ elif selected_tab == "📋 Raw Data":
     else:
         st.warning("No data available for selected filters")
 
-# ============= DATA QUALITY TAB =============
-elif selected_tab == "⚠️ Data Quality":
-    st.subheader("Suspicious Transaction Analysis")
-    st.markdown("""
-    This tab analyzes data quality issues identified during the cleanup process. Use it to:
-    - Understand which records may have data errors
-    - Investigate specific anomalies
-    - Decide how to handle suspicious records
-    """)
+# ============= DATA AUDIT TAB =============
+elif selected_tab == "📊 Data Audit":
+    st.subheader("Database Status & Data Quality")
+
+    with st.spinner("Loading database statistics..."):
+        stats = get_db_stats()
+
+    if stats:
+        # Summary metrics
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            st.metric("Total Records", f"{stats['total_records']:,}")
+        with col2:
+            st.metric("Latest Quarter", f"{stats['latest_year']} Q{stats['latest_quarter']}")
+        with col3:
+            st.metric("Latest Q Records", f"{stats['latest_count']:,}")
+        with col4:
+            st.metric("Years Covered", len(stats['yearly']))
+
+        st.divider()
+
+        # Records by year
+        st.subheader("Records by Transaction Year")
+        yearly_df = pd.DataFrame(stats['yearly'])
+        yearly_df = yearly_df.sort_values('transaction_year')
+
+        fig = px.bar(
+            yearly_df,
+            x='transaction_year',
+            y='count',
+            labels={'transaction_year': 'Year', 'count': 'Record Count'},
+            height=400,
+            title='Transactions by Year'
+        )
+        fig.update_layout(hovermode='x unified')
+        st.plotly_chart(fig, use_container_width=True)
+
+        st.divider()
+
+        # Transactions per quarter - detect incomplete quarters or failed ingests
+        st.subheader("Transactions by Quarter (Latest Years)")
+        quarter_query = """
+        SELECT transaction_year, transaction_quarter, COUNT(*) as count
+        FROM transactions
+        WHERE transaction_year >= (SELECT MAX(transaction_year) - 2 FROM transactions)
+        GROUP BY transaction_year, transaction_quarter
+        ORDER BY transaction_year DESC, transaction_quarter DESC
+        """
+        quarter_df = run_query(quarter_query)
+        if not quarter_df.empty:
+            quarter_df['period'] = quarter_df['transaction_year'].astype(str) + ' Q' + quarter_df['transaction_quarter'].astype(str)
+
+            # Identify potential issues
+            avg_quarterly = quarter_df['count'].mean()
+            threshold = avg_quarterly * 0.5  # Flag quarters with <50% of average
+
+            quarter_df['status'] = quarter_df['count'].apply(
+                lambda x: '⚠️ Low' if x < threshold else '✅ Normal' if x > avg_quarterly * 0.8 else '⚡ Below avg'
+            )
+
+            # Display as chart and table
+            fig = px.bar(
+                quarter_df,
+                x='period',
+                y='count',
+                color='status',
+                color_discrete_map={'✅ Normal': '#2ecc71', '⚡ Below avg': '#f39c12', '⚠️ Low': '#e74c3c'},
+                labels={'count': 'Transaction Count', 'period': 'Quarter'},
+                height=300,
+                title='Transactions Per Quarter (detect incomplete ingests)'
+            )
+            fig.update_layout(hovermode='x unified', showlegend=False)
+            st.plotly_chart(fig, use_container_width=True)
+
+            # Show table
+            display_quarter = quarter_df[['period', 'count', 'status']].rename(
+                columns={'period': 'Quarter', 'count': 'Transactions', 'status': 'Status'}
+            )
+            st.dataframe(display_quarter, use_container_width=True, hide_index=True)
+
+            if (quarter_df['count'] < threshold).any():
+                st.warning("⚠️ Some quarters have significantly fewer transactions. This may indicate incomplete data for recent quarters or a failed ingest.")
+    else:
+        st.error("Could not load database statistics")
+
+    st.divider()
+    st.subheader("Data Quality Issues")
 
     # Show data quality stats
     col1, col2, col3 = st.columns(3)
@@ -3873,83 +3920,6 @@ elif selected_tab == "🔭 Insights":
         f"?labels=insights&title=Insights+request%3A+) "
         f"and describe what you'd like to explore."
     )
-
-elif selected_tab == "📊 DB Stats":
-    st.subheader("Database & Ingest Status")
-
-    with st.spinner("Loading database statistics..."):
-        stats = get_db_stats()
-        logs = get_ingest_logs()
-
-    if stats:
-        # Summary metrics
-        col1, col2, col3, col4 = st.columns(4)
-        with col1:
-            st.metric("Total Records", f"{stats['total_records']:,}")
-        with col2:
-            st.metric("Latest Quarter", f"{stats['latest_year']} Q{stats['latest_quarter']}")
-        with col3:
-            st.metric("Latest Q Records", f"{stats['latest_count']:,}")
-        with col4:
-            st.metric("Years Covered", len(stats['yearly']))
-
-        st.divider()
-
-        # Records by year
-        st.subheader("Records by Transaction Year")
-        yearly_df = pd.DataFrame(stats['yearly'])
-        yearly_df = yearly_df.sort_values('transaction_year')
-
-        fig = px.bar(
-            yearly_df,
-            x='transaction_year',
-            y='count',
-            labels={'transaction_year': 'Year', 'count': 'Record Count'},
-            height=400,
-            title='Transactions by Year'
-        )
-        fig.update_layout(hovermode='x unified')
-        st.plotly_chart(fig, use_container_width=True)
-
-        # Ingest logs
-        st.subheader("Recent Ingest Runs")
-        if logs:
-            logs_df = pd.DataFrame(logs)
-            logs_df = logs_df.sort_values('timestamp', ascending=False)
-
-            # Display as a nice table
-            display_logs = logs_df.copy()
-            display_logs['timestamp'] = display_logs['timestamp'].dt.strftime('%Y-%m-%d %H:%M:%S')
-            display_logs['status'] = display_logs['success'].apply(lambda x: '✅ Success' if x else '⚠️ Check log')
-            display_logs['size'] = display_logs['size_kb'].apply(lambda x: f'{x:.1f} KB')
-
-            st.dataframe(
-                display_logs[['filename', 'timestamp', 'status', 'size']].rename(columns={
-                    'filename': 'Ingest Date',
-                    'timestamp': 'Last Modified',
-                    'status': 'Status',
-                    'size': 'Log Size'
-                }),
-                use_container_width=True,
-                hide_index=True
-            )
-
-            # Show latest log tail
-            st.subheader("Latest Ingest Log (tail)")
-            latest_log = logs_df.iloc[0]
-            log_file = os.path.expanduser(f"~/japan-realestate/logs/{latest_log['filename']}")
-            try:
-                with open(log_file, 'r') as f:
-                    content = f.read()
-                    lines = content.split('\n')
-                    tail_lines = lines[-30:]  # Last 30 lines
-                    st.code('\n'.join(tail_lines), language='text')
-            except Exception as e:
-                st.error(f"Could not read log: {e}")
-        else:
-            st.info("No ingest logs found. Run: `docker exec japan-realestate-app python dbutils/ingest_data.py --full`")
-    else:
-        st.error("Could not load database statistics")
 
 # Footer
 st.divider()
