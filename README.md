@@ -355,7 +355,26 @@ Example: `/transactions?limit=500&offset=500` returns items 501-1000.
 
 ## MCP (Model Context Protocol) Integration
 
-The API is wrapped with MCP tools allowing AI agents to query real estate data.
+The API includes MCP tool endpoints for AI agents to discover and call tools directly.
+
+### Using MCP Endpoints
+
+**1. Get available tools**
+```bash
+curl http://localhost:8000/mcp/tools
+```
+
+**2. Call a tool**
+```bash
+curl -X POST http://localhost:8000/mcp/call/search_transactions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "prefecture_code": "13",
+    "property_types": "Apartment",
+    "price_max": 50000000,
+    "limit": 10
+  }'
+```
 
 ### Available MCP Tools
 

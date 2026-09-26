@@ -475,6 +475,59 @@ def health_check():
     except Exception as e:
         raise HTTPException(status_code=503, detail=f"Database connection failed: {str(e)}")
 
+# =============================================================================
+# MCP (MODEL CONTEXT PROTOCOL) ENDPOINTS
+# =============================================================================
+
+@app.get("/mcp/tools")
+def get_mcp_tools():
+    """Get list of available MCP tools for AI agents."""
+    from mcp_server import TOOLS
+    return {
+        "tools": TOOLS,
+        "description": "MCP tools for querying Japanese real estate data"
+    }
+
+@app.post("/mcp/call/{tool_name}")
+def call_mcp_tool(tool_name: str, params: dict = None):
+    """
+    Execute an MCP tool with given parameters.
+
+    Example:
+    POST /mcp/call/search_transactions
+    {
+        "prefecture_code": "13",
+        "property_types": "Apartment",
+        "price_max": 50000000,
+        "limit": 10
+    }
+    """
+    if params is None:
+        params = {}
+
+    # Route to appropriate endpoint based on tool name
+    try:
+        if tool_name == "search_transactions":
+            return get_transactions(**params)
+        elif tool_name == "get_price_trends":
+            return get_price_trends(**params)
+        elif tool_name == "get_district_prices":
+            return get_price_by_district(**params)
+        elif tool_name == "get_median_price":
+            return get_median_price(**params)
+        elif tool_name == "list_prefectures":
+            return get_prefectures()
+        elif tool_name == "list_municipalities":
+            return get_municipalities(prefecture_code=params.get("prefecture_code"))
+        elif tool_name == "list_property_types":
+            return get_property_types()
+        elif tool_name == "get_statistics":
+            return get_stats_summary()
+        else:
+            raise HTTPException(status_code=404, detail=f"Unknown tool: {tool_name}")
+    except TypeError as e:
+        raise HTTPException(status_code=400, detail=f"Invalid parameters: {str(e)}")
+
 @app.get("/")
 def root():
     """API root - documentation redirect."""
@@ -482,10 +535,12 @@ def root():
         "name": "Japan Real Estate Analytics API",
         "version": "1.0.0",
         "docs": "/docs",
+        "mcp_tools": "/mcp/tools",
         "endpoints": {
             "reference_data": ["/prefectures", "/municipalities", "/districts", "/property-types", "/structures", "/floor-plans"],
             "statistics": ["/stats", "/stats/summary"],
             "transactions": ["/transactions", "/price-trends", "/median-price", "/price-by-district"],
+            "mcp": ["/mcp/tools", "/mcp/call/{tool_name}"],
             "health": ["/health"]
         }
     }
