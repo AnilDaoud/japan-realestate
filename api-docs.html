@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Public REST API and MCP tools for Japanese real estate data. 5.8M+ transactions from MLIT. No authentication required. Rate limited at 100 req/min per IP.">
+    <meta name="keywords" content="API, MCP, Japanese real estate, MLIT, REST, open data">
+    <meta name="robots" content="index, follow">
+    <meta property="og:title" content="Japan Real Estate Analytics - Public API & MCP">
+    <meta property="og:description" content="Free public API for 5.8M+ Japanese real estate transactions. REST endpoints and MCP tools for AI agents.">
+    <meta property="og:url" content="https://anil.diwi.org/japan-realestate/api-docs.html">
+    <meta property="og:type" content="website">
+    <title>Japan Real Estate Analytics - API & MCP Documentation</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            background: #f5f5f5;
+        }
+        header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 3rem 1rem;
+            text-align: center;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        header h1 { font-size: 2.5rem; margin-bottom: 0.5rem; }
+        header p { font-size: 1.2rem; opacity: 0.9; }
+        .container {
+            max-width: 1000px;
+            margin: 0 auto;
+            padding: 2rem 1rem;
+        }
+        section {
+            background: white;
+            margin-bottom: 2rem;
+            padding: 2rem;
+            border-radius: 8px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+        section h2 {
+            border-bottom: 3px solid #667eea;
+            padding-bottom: 0.5rem;
+            margin-bottom: 1rem;
+            color: #667eea;
+        }
+        .grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 2rem;
+            margin-bottom: 2rem;
+        }
+        @media (max-width: 768px) {
+            .grid { grid-template-columns: 1fr; }
+            header h1 { font-size: 1.8rem; }
+        }
+        .card {
+            background: #f9f9f9;
+            padding: 1.5rem;
+            border-radius: 6px;
+            border-left: 4px solid #667eea;
+        }
+        .card h3 { margin-bottom: 0.5rem; color: #667eea; }
+        code {
+            background: #f0f0f0;
+            padding: 0.2rem 0.4rem;
+            border-radius: 3px;
+            font-family: 'Monaco', 'Courier New', monospace;
+            font-size: 0.9em;
+        }
+        pre {
+            background: #2d2d2d;
+            color: #f8f8f2;
+            padding: 1rem;
+            border-radius: 6px;
+            overflow-x: auto;
+            margin: 1rem 0;
+            font-size: 0.9em;
+        }
+        pre code { background: none; padding: 0; color: inherit; }
+        a { color: #667eea; text-decoration: none; }
+        a:hover { text-decoration: underline; }
+        .btn {
+            display: inline-block;
+            padding: 0.75rem 1.5rem;
+            background: #667eea;
+            color: white;
+            border-radius: 4px;
+            margin-top: 1rem;
+            text-decoration: none;
+        }
+        .btn:hover { background: #5568d3; }
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 1rem;
+            margin: 1.5rem 0;
+        }
+        .stat {
+            text-align: center;
+            padding: 1rem;
+            background: #f0f4ff;
+            border-radius: 6px;
+        }
+        .stat .number {
+            font-size: 1.8rem;
+            font-weight: bold;
+            color: #667eea;
+        }
+        .stat .label { color: #666; font-size: 0.9rem; }
+        footer {
+            text-align: center;
+            padding: 2rem;
+            color: #666;
+            background: white;
+            margin-top: 2rem;
+            border-top: 1px solid #eee;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>🏠 Japan Real Estate Analytics</h1>
+        <p>Public API & MCP Tools for 5.8M+ Japanese Real Estate Transactions</p>
+    </header>
+
+    <div class="container">
+        <section>
+            <h2>Overview</h2>
+            <p>
+                Access comprehensive Japanese real estate transaction data from the MLIT (Ministry of Land, Infrastructure, Transport and Tourism)
+                Real Estate Information Library. Our public API provides:
+            </p>
+            <div class="stats">
+                <div class="stat">
+                    <div class="number">5.8M+</div>
+                    <div class="label">Transactions</div>
+                </div>
+                <div class="stat">
+                    <div class="number">47</div>
+                    <div class="label">Prefectures</div>
+                </div>
+                <div class="stat">
+                    <div class="number">2005-2026</div>
+                    <div class="label">Date Range</div>
+                </div>
+                <div class="stat">
+                    <div class="number">0 Auth</div>
+                    <div class="label">Required</div>
+                </div>
+            </div>
+            <p><strong>✅ No authentication required • Rate limited at 100 req/min per IP • All data public</strong></p>
+        </section>
+
+        <section>
+            <h2>Quick Links</h2>
+            <div class="grid">
+                <div class="card">
+                    <h3>🔌 REST API</h3>
+                    <p>Traditional REST endpoints for querying real estate data.</p>
+                    <a href="https://anil.diwi.org/japan-realestate/api/docs" class="btn">View Swagger Docs</a>
+                    <p style="margin-top: 1rem; font-size: 0.9rem;">
+                        <strong>Base URL:</strong><br>
+                        <code>https://anil.diwi.org/japan-realestate/api/</code>
+                    </p>
+                </div>
+                <div class="card">
+                    <h3>🤖 MCP Tools</h3>
+                    <p>Model Context Protocol tools for AI agents (Claude, GPT, etc).</p>
+                    <a href="#mcp-section" class="btn">Learn More</a>
+                    <p style="margin-top: 1rem; font-size: 0.9rem;">
+                        <strong>Base URL:</strong><br>
+                        <code>https://anil.diwi.org/japan-realestate/mcp/</code>
+                    </p>
+                </div>
+            </div>
+        </section>
+
+        <section>
+            <h2>REST API Examples</h2>
+            <p>All endpoints are public and require no authentication.</p>
+
+            <h3 style="margin-top: 1.5rem; margin-bottom: 0.5rem;">Health Check</h3>
+            <pre><code>curl https://anil.diwi.org/japan-realestate/api/health</code></pre>
+
+            <h3 style="margin-top: 1.5rem; margin-bottom: 0.5rem;">List All Prefectures</h3>
+            <pre><code>curl https://anil.diwi.org/japan-realestate/api/prefectures</code></pre>
+
+            <h3 style="margin-top: 1.5rem; margin-bottom: 0.5rem;">Get Tokyo Municipalities</h3>
+            <pre><code>curl 'https://anil.diwi.org/japan-realestate/api/municipalities?prefecture_code=13'</code></pre>
+
+            <h3 style="margin-top: 1.5rem; margin-bottom: 0.5rem;">Search Transactions</h3>
+            <pre><code>curl 'https://anil.diwi.org/japan-realestate/api/transactions?prefecture_code=13&property_types=Apartment&price_max=50000000&limit=10'</code></pre>
+
+            <h3 style="margin-top: 1.5rem; margin-bottom: 0.5rem;">Interactive Documentation</h3>
+            <p>
+                Open <a href="https://anil.diwi.org/japan-realestate/api/docs" target="_blank">Swagger UI</a> to try requests interactively
+                and see all available endpoints.
+            </p>
+        </section>
+
+        <section id="mcp-section">
+            <h2>MCP (Model Context Protocol) Tools</h2>
+            <p>AI agents can discover and call these tools to analyze real estate data:</p>
+
+            <h3 style="margin-top: 1.5rem; margin-bottom: 0.5rem;">Discover Tools</h3>
+            <pre><code>curl https://anil.diwi.org/japan-realestate/mcp/tools</code></pre>
+
+            <h3 style="margin-top: 1.5rem; margin-bottom: 0.5rem;">Available Tools</h3>
+            <ul style="margin-left: 1.5rem; margin-top: 1rem;">
+                <li><code>search_transactions</code> - Search deals with filters</li>
+                <li><code>get_price_trends</code> - Historical price time series</li>
+                <li><code>get_district_prices</code> - Compare neighborhoods</li>
+                <li><code>get_median_price</code> - Latest statistics</li>
+                <li><code>list_prefectures</code> - All regions</li>
+                <li><code>list_municipalities</code> - Cities/wards</li>
+                <li><code>list_property_types</code> - Available types</li>
+                <li><code>get_statistics</code> - Database stats</li>
+            </ul>
+
+            <h3 style="margin-top: 1.5rem; margin-bottom: 0.5rem;">Call a Tool</h3>
+            <pre><code>curl -X POST https://anil.diwi.org/japan-realestate/mcp/call/search_transactions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "prefecture_code": "13",
+    "property_types": "Apartment",
+    "price_max": 50000000,
+    "limit": 5
+  }'</code></pre>
+        </section>
+
+        <section>
+            <h2>Rate Limiting</h2>
+            <div class="card">
+                <h3>Fair Usage Policy</h3>
+                <p><strong>100 requests per minute per IP</strong></p>
+                <p>Every response includes rate limit headers:</p>
+                <pre><code>X-RateLimit-Limit: 100
+X-RateLimit-Remaining: 87
+X-RateLimit-Reset: 1695206460</code></pre>
+                <p style="margin-top: 1rem;">
+                    When limit exceeded, you'll receive HTTP 429. Wait 1 minute for automatic reset.
+                </p>
+            </div>
+        </section>
+
+        <section>
+            <h2>Use Cases</h2>
+            <div class="grid">
+                <div class="card">
+                    <h3>📊 Data Analysis</h3>
+                    <p>Extract transaction data for research, price analysis, and market trends.</p>
+                </div>
+                <div class="card">
+                    <h3>🤖 AI Integration</h3>
+                    <p>Use MCP tools with Claude, GPT, or other AI agents for intelligent analysis.</p>
+                </div>
+                <div class="card">
+                    <h3>📱 App Development</h3>
+                    <p>Build real estate apps with real, up-to-date Japanese market data.</p>
+                </div>
+                <div class="card">
+                    <h3>🔍 Price Comparison</h3>
+                    <p>Compare property prices across districts, cities, and prefectures.</p>
+                </div>
+            </div>
+        </section>
+
+        <section>
+            <h2>Data Source & License</h2>
+            <p>
+                This API uses data from the <strong>MLIT Real Estate Information Library</strong>,
+                a public resource published by Japan's Ministry of Land, Infrastructure, Transport and Tourism.
+            </p>
+            <p style="margin-top: 1rem;">
+                <strong>Note:</strong> The accuracy, completeness, and timeliness of the data is not guaranteed.
+                This project is provided as-is for research and informational purposes.
+            </p>
+            <p style="margin-top: 1rem;">
+                See the <a href="https://github.com/AnilDaoud/japan-realestate" target="_blank">GitHub repository</a>
+                for source code, architecture details, and more information.
+            </p>
+        </section>
+
+        <section>
+            <h2>Need Help?</h2>
+            <ul style="margin-left: 1.5rem;">
+                <li><strong>API Docs:</strong> <a href="https://anil.diwi.org/japan-realestate/api/docs" target="_blank">Interactive Swagger UI</a></li>
+                <li><strong>Dashboard:</strong> <a href="https://anil.diwi.org/japan-realestate/" target="_blank">Streamlit dashboard with data browser</a></li>
+                <li><strong>Issues:</strong> <a href="https://github.com/AnilDaoud/japan-realestate/issues" target="_blank">GitHub issue tracker</a></li>
+                <li><strong>Source:</strong> <a href="https://github.com/AnilDaoud/japan-realestate" target="_blank">GitHub repository</a></li>
+            </ul>
+        </section>
+    </div>
+
+    <footer>
+        <p>Japan Real Estate Analytics • <a href="https://github.com/AnilDaoud/japan-realestate">GitHub</a> • Built with ❤️</p>
+        <p style="font-size: 0.9rem; margin-top: 0.5rem;">
+            Data from MLIT Real Estate Information Library • Updated regularly •
+            <a href="https://anil.diwi.org/japan-realestate/">Dashboard</a>
+        </p>
+    </footer>
+</body>
+</html>
