@@ -232,8 +232,14 @@ GROUP BY transaction_year ORDER BY 1;
 ### Useful Commands
 
 ```bash
-# View logs
+# View all logs
 docker compose logs -f
+
+# View API logs only
+docker compose logs -f api
+
+# View Streamlit app logs only
+docker compose logs -f app
 
 # Restart app after code changes
 docker compose up -d --build
@@ -243,6 +249,33 @@ docker compose down
 
 # Stop and remove data volume
 docker compose down -v
+```
+
+### Monitoring API Usage
+
+**View API requests in real-time:**
+```bash
+docker compose logs -f api
+```
+
+**Check API logs for errors:**
+```bash
+docker compose logs api | grep -i error
+```
+
+**View usage patterns (for public deployment):**
+```bash
+# Count total API requests (from nginx logs)
+grep "japan-realestate/api\|japan-realestate/mcp" /var/log/nginx/access.log | wc -l
+
+# Top endpoints by requests
+grep "japan-realestate/api\|japan-realestate/mcp" /var/log/nginx/access.log | awk '{print $7}' | sort | uniq -c | sort -rn
+
+# Top clients by requests
+grep "japan-realestate/api\|japan-realestate/mcp" /var/log/nginx/access.log | awk '{print $1}' | sort | uniq -c | sort -rn
+
+# Most used MCP tools
+grep "japan-realestate/mcp/call" /var/log/nginx/access.log | grep -o "call/[a-z_]*" | sort | uniq -c | sort -rn
 ```
 
 ---
