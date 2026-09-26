@@ -13,7 +13,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy application code
 COPY app.py .
 COPY api.py .
+COPY api_security.py .
 COPY api_client.py .
+COPY mcp_server.py .
 COPY dbutils/ ./dbutils/
 
 EXPOSE 8000 9001
