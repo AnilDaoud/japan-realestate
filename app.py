@@ -3887,7 +3887,7 @@ elif selected_tab == "📊 DB Stats":
         with col1:
             st.metric("Total Records", f"{stats['total_records']:,}")
         with col2:
-            st.metric("Latest Quarter", f"20{stats['latest_year'][-2:]} Q{stats['latest_quarter']}")
+            st.metric("Latest Quarter", f"{stats['latest_year']} Q{stats['latest_quarter']}")
         with col3:
             st.metric("Latest Q Records", f"{stats['latest_count']:,}")
         with col4:
