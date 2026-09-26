@@ -42,16 +42,6 @@ def get_api_base_url():
     if os.getenv("API_BASE_URL"):
         return os.getenv("API_BASE_URL").rstrip("/")
 
-    # Try to get from Streamlit context
-    try:
-        from streamlit.runtime.scriptrunner import get_script_run_ctx
-        ctx = get_script_run_ctx()
-        if ctx and ctx.session_state:
-            # If we have the full URL, extract the base
-            pass
-    except:
-        pass
-
     # Default to localhost for development
     return "http://localhost:8000"
 
@@ -3349,29 +3339,36 @@ elif selected_tab == "🔌 API & MCP":
                              f'Total Price ({currency_symbol})', f'Price ({unit_label})',
                              'Area (m2)', 'Year Built', 'Layout', 'Structure']
 
-        rows_per_page = 50
-        total_pages = (len(display_df) // rows_per_page) + (1 if len(display_df) % rows_per_page else 0)
+        # Guard against empty dataframe
+        if display_df.empty:
+            st.info("No transactions to display.")
+        else:
+            rows_per_page = 50
+            total_pages = max(1, (len(display_df) // rows_per_page) + (1 if len(display_df) % rows_per_page else 0))
 
-        col1, col2 = st.columns([3, 1])
-        with col1:
-            st.caption(f"Showing {len(display_df)} transactions • {total_pages} pages")
-        with col2:
-            current_page = st.selectbox("Page", range(1, total_pages + 1), key="raw_data_page")
+            col1, col2 = st.columns([3, 1])
+            with col1:
+                st.caption(f"Showing {len(display_df)} transactions • {total_pages} pages")
+            with col2:
+                if total_pages > 1:
+                    current_page = st.selectbox("Page", range(1, total_pages + 1), key="raw_data_page")
+                else:
+                    current_page = 1
 
-        start_idx = (current_page - 1) * rows_per_page
-        end_idx = start_idx + rows_per_page
-        page_df = display_df.iloc[start_idx:end_idx]
+            start_idx = (current_page - 1) * rows_per_page
+            end_idx = start_idx + rows_per_page
+            page_df = display_df.iloc[start_idx:end_idx]
 
-        st.dataframe(
-            page_df.style.format({
-                f'Total Price ({currency_symbol})': '{:,.0f}',
-                f'Price ({unit_label})': '{:,.0f}',
-                'Area (m2)': '{:.1f}'
-            }),
-            width="stretch",
-            height=500,
-            use_container_width=True
-        )
+            st.dataframe(
+                page_df.style.format({
+                    f'Total Price ({currency_symbol})': '{:,.0f}',
+                    f'Price ({unit_label})': '{:,.0f}',
+                    'Area (m2)': '{:.1f}'
+                }),
+                width="stretch",
+                height=500,
+                use_container_width=True
+            )
 
         # Download button
         csv_data = display_df.to_csv(index=False)

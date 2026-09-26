@@ -29,11 +29,11 @@ class APIClient:
 
     def get_municipalities(self, prefecture_code: str) -> List[Dict]:
         """Get municipalities for a prefecture."""
-        return self.get(f"/municipalities?prefecture_code={prefecture_code}")
+        return self.get("/municipalities", params={"prefecture_code": prefecture_code})
 
     def get_districts(self, municipality_codes: str) -> List[Dict]:
         """Get districts for municipalities (comma-separated)."""
-        return self.get(f"/districts?municipality_codes={municipality_codes}")
+        return self.get("/districts", params={"municipality_codes": municipality_codes})
 
     def get_property_types(self) -> List[str]:
         """Get all property types."""
@@ -105,8 +105,7 @@ class APIClient:
         params["limit"] = limit
         params["offset"] = offset
 
-        query_string = "&".join([f"{k}={v}" for k, v in params.items()])
-        return self.get(f"/transactions?{query_string}")
+        return self.get("/transactions", params=params)
 
     # Price Analysis
     def get_price_trends(
@@ -128,8 +127,7 @@ class APIClient:
         if property_types:
             params["property_types"] = property_types
 
-        query_string = "&".join([f"{k}={v}" for k, v in params.items()])
-        return self.get(f"/price-trends?{query_string}")
+        return self.get("/price-trends", params=params)
 
     def get_median_price(
         self,
@@ -146,8 +144,7 @@ class APIClient:
         if property_types:
             params["property_types"] = property_types
 
-        query_string = "&".join([f"{k}={v}" for k, v in params.items()])
-        return self.get(f"/median-price?{query_string}")
+        return self.get("/median-price", params=params)
 
     def get_price_by_district(
         self,
@@ -165,8 +162,7 @@ class APIClient:
         if property_types:
             params["property_types"] = property_types
 
-        query_string = "&".join([f"{k}={v}" for k, v in params.items()])
-        return self.get(f"/price-by-district?{query_string}")
+        return self.get("/price-by-district", params=params)
 
     def health_check(self) -> Dict:
         """Check API health."""

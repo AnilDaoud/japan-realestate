@@ -69,8 +69,8 @@ The **FastAPI backend (port 8000)** provides a public REST API. **No authenticat
 
 ### Rate Limits
 
-- **100 requests per minute per IP** (1.67 requests/second)
-- **Burst allowed**: Up to 200 requests before rate limiting
+- **100 requests per minute per IP** (1.67 requests/second) — hard application-level limit with no burst
+- **Burst up to 200 requests**: Only available when deploying behind the optional nginx reverse-proxy configuration (see "nginx Configuration for Production" below)
 - **Returns HTTP 429** when limit exceeded
 - Rate limit headers included in all responses:
   - `X-RateLimit-Limit`: 100
@@ -379,7 +379,7 @@ Example: `/transactions?limit=500&offset=500` returns items 501-1000.
 
 ### Performance Notes
 
-- Endpoints are not cached — use the client's built-in caching or add your own if calling repeatedly
+- Endpoints are not cached server-side, and the Python client does not cache either — add your own caching if calling repeatedly
 - Large result sets (>5000 records) may take several seconds
 - For aggregated data (price trends, statistics), filtering is more efficient than fetching all transactions
 - Use `limit` and `offset` for pagination of large result sets
@@ -659,7 +659,7 @@ The public API uses **IP-based rate limiting** for fairness.
 | Limit | Value |
 |-------|-------|
 | Requests per minute | 100 |
-| Burst allowed | 200 |
+| Burst allowed | None (app-level); up to 200 only via optional nginx configuration |
 | Window | 1 minute |
 | Status code when exceeded | 429 (Too Many Requests) |
 
@@ -771,13 +771,13 @@ Container
 
 ### Performance Characteristics
 
-| Endpoint | Latency | Result Size | Cacheable |
-|----------|---------|------------|-----------|
-| Reference data | <10ms | Small | ✓ 24hr |
-| Statistics | 100-500ms | Medium | ✓ 1hr |
-| Price trends | 500ms-2s | Medium | ✓ 1hr |
-| Transactions | 1-5s | Large (paginated) | ✓ 24hr |
-| Median price | 100-500ms | Small | ✓ 1hr |
+| Endpoint | Latency | Result Size |
+|----------|---------|------------|
+| Reference data | <10ms | Small |
+| Statistics | 100-500ms | Medium |
+| Price trends | 500ms-2s | Medium |
+| Transactions | 1-5s | Large (paginated) |
+| Median price | 100-500ms | Small |
 
 ---
 

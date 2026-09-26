@@ -7,16 +7,12 @@ Run: uvicorn api:app --reload --port 8000
 """
 
 from fastapi import FastAPI, HTTPException, Query, Request
-from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 import psycopg2
 from psycopg2.extras import RealDictCursor
-import pandas as pd
 import os
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Annotated
 from datetime import datetime
-import requests
-from functools import lru_cache
 import time
 
 # Import rate limiting middleware
@@ -44,7 +40,7 @@ allowed_origins = os.getenv("CORS_ORIGINS", "*").split(",")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=allowed_origins,
-    allow_credentials=True,
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -70,18 +66,18 @@ def get_db_connection():
 
 def run_query(query: str, params: tuple = ()) -> List[Dict[str, Any]]:
     """Execute a query and return results as list of dicts."""
+    conn = None
     try:
         conn = get_db_connection()
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
             cur.execute(query, params)
-            columns = [desc[0] for desc in cur.description] if cur.description else []
-            results = []
-            for row in cur.fetchall():
-                results.append(dict(row))
-            conn.close()
-            return results
+            results = [dict(row) for row in cur.fetchall()]
+        return results
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+        raise HTTPException(status_code=500, detail="Database error")
+    finally:
+        if conn is not None:
+            conn.close()
 
 # =============================================================================
 # REFERENCE DATA ENDPOINTS
@@ -111,15 +107,16 @@ def get_municipalities(prefecture_code: str):
     return results
 
 @app.get("/districts")
-def get_districts(municipality_codes: str = Query(...)):
+def get_districts(municipality_codes: str):
     """Get districts for municipalities (comma-separated codes)."""
     codes = tuple(municipality_codes.split(","))
     placeholders = ",".join(["%s"] * len(codes))
     query = f"""
-    SELECT DISTINCT district_name, municipality_code, municipality_name
-    FROM transactions
-    WHERE municipality_code IN ({placeholders})
-    ORDER BY district
+    SELECT DISTINCT t.district_name, t.municipality_code, m.name_en as municipality_name
+    FROM transactions t
+    JOIN municipalities m ON m.code = t.municipality_code
+    WHERE t.municipality_code IN ({placeholders})
+    ORDER BY t.district_name
     """
     results = run_query(query, codes)
     return results
@@ -140,13 +137,13 @@ def get_property_types():
 def get_structures():
     """Get all building structure types."""
     query = """
-    SELECT DISTINCT structure_type
+    SELECT DISTINCT structure
     FROM transactions
-    WHERE structure_type IS NOT NULL
-    ORDER BY structure_type
+    WHERE structure IS NOT NULL
+    ORDER BY structure
     """
     results = run_query(query)
-    return [r["structure_type"] for r in results]
+    return [r["structure"] for r in results]
 
 @app.get("/floor-plans")
 def get_floor_plans():
@@ -176,9 +173,9 @@ def get_year_range():
 def get_building_year_range():
     """Get min/max building years."""
     query = """
-    SELECT MIN(year_built) as min_year, MAX(year_built) as max_year
+    SELECT MIN(building_year) as min_year, MAX(building_year) as max_year
     FROM transactions
-    WHERE year_built IS NOT NULL
+    WHERE building_year IS NOT NULL
     """
     results = run_query(query)
     if results:
@@ -238,10 +235,12 @@ def get_transactions(
     price_max: Optional[float] = None,
     area_min: Optional[float] = None,
     area_max: Optional[float] = None,
-    limit: int = Query(1000, le=10000),
+    limit: Annotated[int, Query(le=10000)] = 1000,
     offset: int = 0,
 ):
     """Query transactions with flexible filters."""
+    limit = max(1, min(limit, 10000))
+    offset = max(0, offset)
     conditions = []
     params = []
 
@@ -264,7 +263,7 @@ def get_transactions(
     if property_types:
         types = tuple(property_types.split(","))
         placeholders = ",".join(["%s"] * len(types))
-        conditions.append(f"property_type IN ({placeholders})")
+        conditions.append(f"property_type_raw IN ({placeholders})")
         params.extend(types)
 
     if year_min:
@@ -276,19 +275,19 @@ def get_transactions(
         params.append(year_max)
 
     if price_min:
-        conditions.append("transaction_price >= %s")
+        conditions.append("trade_price >= %s")
         params.append(price_min)
 
     if price_max:
-        conditions.append("transaction_price <= %s")
+        conditions.append("trade_price <= %s")
         params.append(price_max)
 
     if area_min:
-        conditions.append("area >= %s")
+        conditions.append("area_m2 >= %s")
         params.append(area_min)
 
     if area_max:
-        conditions.append("area <= %s")
+        conditions.append("area_m2 <= %s")
         params.append(area_max)
 
     where_clause = " WHERE " + " AND ".join(conditions) if conditions else ""
@@ -315,7 +314,7 @@ def get_price_trends(
     municipality_codes: Optional[str] = None,
     districts: Optional[str] = None,
     property_types: Optional[str] = None,
-    frequency: str = Query("Quarterly", regex="^(Quarterly|Yearly)$"),
+    frequency: Annotated[str, Query(pattern="^(Quarterly|Yearly)$")] = "Quarterly",
 ):
     """Get historical price trends."""
     conditions = []
@@ -340,7 +339,7 @@ def get_price_trends(
     if property_types:
         types = tuple(property_types.split(","))
         placeholders = ",".join(["%s"] * len(types))
-        conditions.append(f"property_type IN ({placeholders})")
+        conditions.append(f"property_type_raw IN ({placeholders})")
         params.extend(types)
 
     where_clause = " WHERE " + " AND ".join(conditions) if conditions else ""
@@ -348,19 +347,21 @@ def get_price_trends(
     if frequency == "Quarterly":
         group_by = "transaction_year, transaction_quarter"
         order_by = "transaction_year DESC, transaction_quarter DESC"
+        quarter_select = "transaction_quarter"
     else:
         group_by = "transaction_year"
         order_by = "transaction_year DESC"
+        quarter_select = "NULL as transaction_quarter"
 
     query = f"""
     SELECT
         transaction_year,
-        transaction_quarter,
+        {quarter_select},
         COUNT(*) as volume,
-        AVG(transaction_price) as avg_price,
-        PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY transaction_price) as median_price,
-        AVG(CASE WHEN area > 0 THEN transaction_price / area ELSE NULL END) as avg_unit_price,
-        PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY CASE WHEN area > 0 THEN transaction_price / area ELSE NULL END) as median_unit_price
+        AVG(trade_price) as avg_price,
+        PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY trade_price) as median_price,
+        AVG(CASE WHEN area_m2 > 0 THEN trade_price / area_m2 ELSE NULL END) as avg_unit_price,
+        PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY CASE WHEN area_m2 > 0 THEN trade_price / area_m2 ELSE NULL END) as median_unit_price
     FROM transactions
     {where_clause}
     GROUP BY {group_by}
@@ -393,16 +394,16 @@ def get_median_price(
     if property_types:
         types = tuple(property_types.split(","))
         placeholders = ",".join(["%s"] * len(types))
-        conditions.append(f"property_type IN ({placeholders})")
+        conditions.append(f"property_type_raw IN ({placeholders})")
         params.extend(types)
 
     where_clause = " WHERE " + " AND ".join(conditions) if conditions else ""
 
     query = f"""
     SELECT
-        PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY transaction_price) as median_price,
-        PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY CASE WHEN area > 0 THEN transaction_price / area ELSE NULL END) as median_unit_price,
-        AVG(transaction_price) as avg_price,
+        PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY trade_price) as median_price,
+        PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY CASE WHEN area_m2 > 0 THEN trade_price / area_m2 ELSE NULL END) as median_unit_price,
+        AVG(trade_price) as avg_price,
         COUNT(*) as transaction_count
     FROM transactions
     {where_clause}
@@ -416,41 +417,43 @@ def get_price_by_district(
     prefecture_code: Optional[str] = None,
     municipality_codes: Optional[str] = None,
     property_types: Optional[str] = None,
-    limit: int = Query(50, le=500),
+    limit: Annotated[int, Query(le=500)] = 50,
 ):
     """Get median prices grouped by district."""
+    limit = max(1, min(limit, 500))
     conditions = []
     params = []
 
     if prefecture_code:
-        conditions.append("prefecture_code = %s")
+        conditions.append("t.prefecture_code = %s")
         params.append(prefecture_code)
 
     if municipality_codes:
         codes = tuple(municipality_codes.split(","))
         placeholders = ",".join(["%s"] * len(codes))
-        conditions.append(f"municipality_code IN ({placeholders})")
+        conditions.append(f"t.municipality_code IN ({placeholders})")
         params.extend(codes)
 
     if property_types:
         types = tuple(property_types.split(","))
         placeholders = ",".join(["%s"] * len(types))
-        conditions.append(f"property_type IN ({placeholders})")
+        conditions.append(f"t.property_type_raw IN ({placeholders})")
         params.extend(types)
 
     where_clause = " WHERE " + " AND ".join(conditions) if conditions else ""
 
     query = f"""
     SELECT
-        district_name,
-        municipality_name,
+        t.district_name,
+        m.name_en as municipality_name,
         COUNT(*) as transaction_count,
-        PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY transaction_price) as median_price,
-        PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY CASE WHEN area > 0 THEN transaction_price / area ELSE NULL END) as median_unit_price,
-        AVG(transaction_price) as avg_price
-    FROM transactions
+        PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY t.trade_price) as median_price,
+        PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY CASE WHEN t.area_m2 > 0 THEN t.trade_price / t.area_m2 ELSE NULL END) as median_unit_price,
+        AVG(t.trade_price) as avg_price
+    FROM transactions t
+    JOIN municipalities m ON m.code = t.municipality_code
     {where_clause}
-    GROUP BY district_name, municipality_name
+    GROUP BY t.district_name, m.name_en
     ORDER BY median_price DESC NULLS LAST
     LIMIT %s
     """
@@ -473,7 +476,7 @@ def health_check():
         conn.close()
         return {"status": "healthy", "timestamp": datetime.now().isoformat()}
     except Exception as e:
-        raise HTTPException(status_code=503, detail=f"Database connection failed: {str(e)}")
+        raise HTTPException(status_code=503, detail="Database connection failed")
 
 # =============================================================================
 # MCP (MODEL CONTEXT PROTOCOL) ENDPOINTS

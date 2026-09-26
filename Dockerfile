@@ -20,6 +20,4 @@ COPY dbutils/ ./dbutils/
 
 EXPOSE 8000 9001
 
-HEALTHCHECK CMD curl --fail http://localhost:8000/health || exit 1
-
 CMD ["streamlit", "run", "app.py", "--server.port=9001", "--server.address=0.0.0.0"]
