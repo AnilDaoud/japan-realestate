@@ -20,6 +20,8 @@ A Streamlit dashboard + FastAPI backend for exploring Japanese real estate trans
 - **AI Agent Ready**: MCP integration for Claude, GPT, and other agents to query real estate data
 - **Python Client**: Simple library for accessing the API from Python scripts
 
+---
+
 ## Quick Start
 
 ### Simplest: Docker
@@ -58,6 +60,8 @@ streamlit run app.py --server.port=9001
 Then open:
 - **Dashboard:** http://localhost:9001
 - **API Docs:** http://localhost:8000/docs
+
+---
 
 ## Using the API (Port 8000)
 
@@ -119,7 +123,30 @@ curl "http://localhost:8000/transactions?prefecture_code=26&property_types=House
 curl "http://localhost:8000/price-trends?prefecture_code=13&frequency=Yearly"
 ```
 
-See [API Documentation](#api-documentation) for the full endpoint reference.
+---
+
+## Dashboard Tabs
+
+| Tab | Description |
+|-----|-------------|
+| **Charts** | Time series, histogram, and scatter plots of price trends |
+| **Map** | Price comparison by ward/city with visualizations |
+| **Districts** | Price trends and YoY changes by district within selected area |
+| **Cohorts** | Analyze prices by building age, property size, or total price |
+| **Valuation** | Estimate property values, check listings, track depreciation |
+| **Raw Data** | Browse and download transaction records |
+
+## Filters
+
+- **Location**: Prefecture, ward/city, district, nearest station
+- **Property**: Type, structure (RC, wood, etc.), floor plan (LDK layouts)
+- **Size**: Area range (m²)
+- **Price**: Total price, price per m²
+- **Date**: Transaction year, year built
+
+---
+
+## Data Management
 
 ### Import Data
 
@@ -135,9 +162,11 @@ Or ingest fresh data from the MLIT API:
 docker exec -it japan-realestate-app python dbutils/ingest_data.py --full
 ```
 
-### Access
+### Getting an MLIT API Key
 
-Open http://localhost:9001 in your browser.
+Apply for a free MLIT API key at: https://www.reinfolib.mlit.go.jp/api/request/
+
+You'll receive the key via email in 2-3 days.
 
 ### Updating Data
 
@@ -193,87 +222,7 @@ docker compose down
 docker compose down -v
 ```
 
-## Getting an API Key
-
-Apply for a free MLIT API key at: https://www.reinfolib.mlit.go.jp/api/request/
-
-You'll receive the key via email in 2-3 days.
-
-## Dashboard Tabs
-
-| Tab | Description |
-|-----|-------------|
-| **Charts** | Time series, histogram, and scatter plots of price trends |
-| **Map** | Price comparison by ward/city with visualizations |
-| **Districts** | Price trends and YoY changes by district within selected area |
-| **Cohorts** | Analyze prices by building age, property size, or total price |
-| **Valuation** | Estimate property values, check listings, track depreciation |
-| **Raw Data** | Browse and download transaction records |
-
-## Filters
-
-- **Location**: Prefecture, ward/city, district, nearest station
-- **Property**: Type, structure (RC, wood, etc.), floor plan (LDK layouts)
-- **Size**: Area range (m²)
-- **Price**: Total price, price per m²
-- **Date**: Transaction year, year built
-
-## Japanese Real Estate Terms
-
-| Term | Meaning |
-|------|---------|
-| **Tsubo** (坪) | Traditional area unit. 1 tsubo ≈ 3.31 m² |
-| **LDK** | L=Living, D=Dining, K=Kitchen. Example: 2LDK = 2 bedrooms + LDK |
-| **Mansion** (マンション) | Concrete apartment/condo building (not a large house) |
-| **Chome** (丁目) | District subdivision, like a block number |
-| **RC/SRC** | Reinforced Concrete / Steel Reinforced Concrete |
-
-## Data Source
-
-This service uses the MLIT Real Estate Information Library API. The accuracy, completeness, and timeliness of the data is not guaranteed.
-
-このサービスは、国土交通省不動産情報ライブラリのAPI機能を使用していますが、提供情報の最新性、正確性、完全性等が保証されたものではありません。
-
-## AI Agent Integration
-
-Use the API with AI agents via the Python client or REST endpoints:
-
-```python
-# Claude API example with tool use
-import anthropic
-
-client = anthropic.Anthropic()
-
-# Define Japan Real Estate API tools
-tools = [
-    {
-        "name": "search_transactions",
-        "description": "Search real estate transactions",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "prefecture_code": {"type": "string"},
-                "property_types": {"type": "string"},
-                "price_min": {"type": "number"},
-                "price_max": {"type": "number"}
-            }
-        }
-    },
-    # ... more tools (see mcp_server.py)
-]
-
-response = client.messages.create(
-    model="claude-opus-5-5",
-    max_tokens=1024,
-    tools=tools,
-    messages=[{
-        "role": "user",
-        "content": "What are the most expensive neighborhoods in Tokyo?"
-    }]
-)
-```
-
-See [CLAUDE_EXAMPLE.md](CLAUDE_EXAMPLE.md) for complete examples.
+---
 
 ## API Documentation
 
@@ -306,27 +255,325 @@ All endpoints support flexible filtering:
 - `limit` — Results per page (default 100-1000)
 - `offset` — Pagination offset
 
-## Architecture
+### Response Format
+
+All endpoints return JSON. Transaction queries return paginated results:
+
+```json
+{
+  "count": 1000,
+  "limit": 1000,
+  "offset": 0,
+  "data": [
+    {
+      "id": 12345,
+      "prefecture_code": "13",
+      "prefecture_name": "Tokyo",
+      "municipality_code": "13101",
+      "municipality_name": "Chiyoda Ward",
+      "district": "Marunouchi",
+      "property_type": "Apartment",
+      "transaction_price": 65000000,
+      "area": 72.5,
+      "year_built": 2015,
+      "structure_type": "RC",
+      "floor_plan": "2LDK",
+      "transaction_year": 2024,
+      "transaction_quarter": 2,
+      "...": "other fields"
+    }
+  ]
+}
+```
+
+### Query Examples
+
+**1. Tokyo Shibuya apartments (last 2 years)**
+
+```bash
+curl "http://localhost:8000/price-by-district?prefecture_code=13&municipality_codes=13104&property_types=Apartment&limit=20"
+```
+
+**2. Price trends for Tokyo (yearly)**
+
+```bash
+curl "http://localhost:8000/price-trends?prefecture_code=13&frequency=Yearly"
+```
+
+**3. Houses in Kyoto under ¥50M (2023-2024)**
+
+```bash
+curl "http://localhost:8000/transactions?prefecture_code=26&property_types=House&year_min=2023&year_max=2024&price_max=50000000"
+```
+
+**4. Recent transactions in Shibuya (¥60M-¥100M range)**
+
+```bash
+curl "http://localhost:8000/transactions?municipality_codes=13104&price_min=60000000&price_max=100000000&year_min=2024&limit=100"
+```
+
+### Pagination
+
+Transaction and listing endpoints support pagination:
+
+- `limit` — Items per page (default 1000, max 10000)
+- `offset` — Items to skip (default 0)
+
+Example: `/transactions?limit=500&offset=500` returns items 501-1000.
+
+### Performance Notes
+
+- Endpoints are not cached — use the client's built-in caching or add your own if calling repeatedly
+- Large result sets (>5000 records) may take several seconds
+- For aggregated data (price trends, statistics), filtering is more efficient than fetching all transactions
+- Use `limit` and `offset` for pagination of large result sets
+
+---
+
+## MCP (Model Context Protocol) Integration
+
+The API is wrapped with MCP tools allowing AI agents to query real estate data.
+
+### Available MCP Tools
+
+1. **search_transactions** — Search Japanese real estate transactions with flexible filtering
+2. **get_price_trends** — Get historical price trends (time series) for a location
+3. **get_district_prices** — Get median prices by district, ranked highest to lowest
+4. **get_median_price** — Get overall median and average prices for a location
+5. **list_prefectures** — Get all Japanese prefectures
+6. **list_municipalities** — Get cities/wards for a prefecture
+7. **list_property_types** — Get all available property types
+8. **get_statistics** — Get overall database statistics
+
+### Tool Examples
+
+#### Find affordable apartments in Tokyo
 
 ```
-┌─────────────────────────────────────┐
-│  Streamlit Dashboard (port 9001)    │
-│  External Scripts                   │
-│  AI Agents (Claude, GPT, etc.)      │
-└──────────────┬──────────────────────┘
-               │
-┌──────────────▼──────────────────────┐
-│  FastAPI Backend (port 8000)        │
-│  - REST endpoints                   │
-│  - Data validation                  │
-│  - Request handling                 │
-└──────────────┬──────────────────────┘
-               │
-┌──────────────▼──────────────────────┐
-│  PostgreSQL Database                │
-│  6.1M+ real estate transactions     │
-└─────────────────────────────────────┘
+Tool: search_transactions
+Inputs:
+  prefecture_code: "13"
+  property_types: "Apartment"
+  price_min: 30000000
+  price_max: 50000000
+  limit: 50
 ```
+
+#### Analyze Kyoto district prices
+
+```
+Tool: get_district_prices
+Inputs:
+  prefecture_code: "26"
+  property_types: "House"
+  limit: 20
+```
+
+#### Track Tokyo condo price trends
+
+```
+Tool: get_price_trends
+Inputs:
+  prefecture_code: "13"
+  property_types: "Apartment"
+  frequency: "Yearly"
+```
+
+#### Compare prices in Shibuya vs Shinjuku
+
+```
+Tool: search_transactions
+Inputs:
+  districts: "Shibuya,Shinjuku"
+  property_types: "Apartment"
+  year_min: 2023
+  limit: 100
+```
+
+### Integration with Claude API
+
+```python
+from anthropic import Anthropic
+
+client = Anthropic()
+
+tools = [
+    {
+        "name": "search_transactions",
+        "description": "Search Japanese real estate transactions",
+        "input_schema": {
+            # ... (see MCP documentation for full schema)
+        }
+    },
+    # ... other tools
+]
+
+response = client.messages.create(
+    model="claude-opus-5-5",
+    max_tokens=1024,
+    tools=tools,
+    messages=[
+        {
+            "role": "user",
+            "content": "What are the most expensive neighborhoods in Tokyo?"
+        }
+    ]
+)
+```
+
+---
+
+## Claude Integration Examples
+
+### Example 1: Claude API with Tool Use
+
+```python
+import anthropic
+import json
+import httpx
+
+client = anthropic.Anthropic()
+
+tools = [
+    {
+        "name": "search_transactions",
+        "description": "Search Japanese real estate transactions with filters",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "prefecture_code": {
+                    "type": "string",
+                    "description": "Prefecture code (e.g., '13' for Tokyo)"
+                },
+                "property_types": {
+                    "type": "string",
+                    "description": "Comma-separated types"
+                },
+                "price_min": {"type": "number"},
+                "price_max": {"type": "number"},
+                "year_min": {"type": "integer"},
+                "year_max": {"type": "integer"},
+                "limit": {"type": "integer", "default": 100}
+            }
+        }
+    }
+]
+
+def call_api(tool_name: str, tool_input: dict):
+    """Call the Japan Real Estate API"""
+    params = {k: v for k, v in tool_input.items() if v is not None}
+    
+    if tool_name == "search_transactions":
+        url = "http://localhost:8000/transactions"
+    
+    response = httpx.get(url, params=params)
+    return response.json()
+
+def run_claude_analysis(user_query: str) -> str:
+    """Run an analysis with Claude using tool use"""
+    
+    messages = [{"role": "user", "content": user_query}]
+    
+    while True:
+        response = client.messages.create(
+            model="claude-opus-5-5",
+            max_tokens=2048,
+            tools=tools,
+            messages=messages
+        )
+        
+        if response.stop_reason == "end_turn":
+            for block in response.content:
+                if hasattr(block, "text"):
+                    return block.text
+        
+        if response.stop_reason == "tool_use":
+            messages.append({"role": "assistant", "content": response.content})
+            
+            tool_results = []
+            for block in response.content:
+                if block.type == "tool_use":
+                    result = call_api(block.name, block.input)
+                    tool_results.append({
+                        "type": "tool_result",
+                        "tool_use_id": block.id,
+                        "content": json.dumps(result)
+                    })
+            
+            messages.append({"role": "user", "content": tool_results})
+
+# Example usage
+result = run_claude_analysis(
+    "What are the most expensive neighborhoods in Tokyo for apartments? "
+    "Show me the top 5 with median prices."
+)
+print(result)
+```
+
+### Example 2: Simple Python Script
+
+```python
+from api_client import APIClient
+import pandas as pd
+
+client = APIClient("http://localhost:8000")
+
+# Get statistics
+stats = client.get_stats_summary()
+print(f"Database: {stats['total_records']:,} transactions")
+print(f"Date range: {stats['earliest_year']} to {stats['latest_year']}")
+
+# Get Tokyo district prices
+districts = client.get_price_by_district(
+    prefecture_code="13",
+    property_types="Apartment",
+    limit=10
+)
+
+df = pd.DataFrame(districts)
+print("\nTop 10 Most Expensive Tokyo Neighborhoods (Apartments):")
+print(df[["district", "median_price", "transaction_count"]].to_string(index=False))
+
+# Get price trends
+trends = client.get_price_trends(prefecture_code="13", frequency="Yearly")
+df_trends = pd.DataFrame(trends)
+print("\nTokyo Apartment Price Trends (Yearly):")
+print(df_trends[["transaction_year", "volume", "median_price"]].to_string(index=False))
+```
+
+### Example 3: Real Estate Investment Analysis
+
+```python
+from api_client import APIClient
+
+client = APIClient("http://localhost:8000")
+
+def analyze_prefecture(code, name):
+    """Analyze a prefecture's market"""
+    price_stats = client.get_median_price(prefecture_code=code)
+    trends = client.get_price_trends(prefecture_code=code, frequency="Yearly")
+    districts = client.get_price_by_district(prefecture_code=code, limit=5)
+    
+    return {
+        "name": name,
+        "median_price": price_stats.get("median_price", 0),
+        "transaction_count": price_stats.get("transaction_count", 0),
+        "trends": trends,
+        "top_districts": districts
+    }
+
+# Compare prefectures
+tokyo = analyze_prefecture("13", "Tokyo")
+kyoto = analyze_prefecture("26", "Kyoto")
+
+print(f"Tokyo median: ¥{tokyo['median_price']:,} ({tokyo['transaction_count']} transactions)")
+print(f"Kyoto median: ¥{kyoto['median_price']:,} ({kyoto['transaction_count']} transactions)")
+
+price_ratio = tokyo['median_price'] / kyoto['median_price']
+print(f"\nTokyo is {price_ratio:.1f}x more expensive than Kyoto")
+```
+
+---
 
 ## Security & Monitoring
 
@@ -355,9 +602,8 @@ curl -H "X-API-Key: your-api-key" http://api.example.com/transactions
 - Pydantic validates all input parameters
 - Prevents injection attacks
 
-### Setup Production Security
+### Setup Production Security (one-time)
 
-**Enable security** (one-time):
 ```bash
 export REQUIRE_API_KEY=true
 export ADMIN_KEY="your-secure-admin-key"
@@ -365,7 +611,8 @@ export CORS_ORIGINS="https://yourapp.com"
 docker compose restart api
 ```
 
-**Create API keys** for each client:
+### Create API Keys
+
 ```bash
 ADMIN_KEY="your-secure-admin-key"
 
@@ -380,7 +627,8 @@ curl -X POST http://localhost:8000/admin/keys/add \
   -d '{"name": "Public Demo", "quota_per_hour": 100}'
 ```
 
-**nginx configuration** (add to your server config):
+### nginx Configuration
+
 ```nginx
 server {
     listen 443 ssl;
@@ -459,7 +707,70 @@ curl -H "X-API-Key: $ADMIN_KEY" \
 3. **Revoke if needed**: `/admin/keys/revoke`
 4. **Lower quota or rotate key** if legitimate user exceeded limit
 
-For full security documentation, see `api_security.py` in the repository.
+---
+
+## System Architecture
+
+### Component Diagram
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                        Clients                              │
+├────────────┬──────────────────────┬────────────────────────┤
+│            │                      │                        │
+│      Streamlit UI           External Agents           Other Apps
+│       (Browser)         (Claude, GPT, etc.)          (Python/JS)
+│            │                      │                        │
+└────────────┼──────────────────────┼────────────────────────┘
+             │                      │
+             │        ┌─────────────┴────────────┐
+             │        │                          │
+      ┌──────▼────────▼──────┐          ┌─────────▼─────────┐
+      │   FastAPI Backend    │          │    MCP Server     │
+      │   (api.py)           │          │ (mcp_server.py)   │
+      │   Port: 8000         │          │ (Wraps API calls) │
+      └──────┬───────────────┘          └────────────────────┘
+             │
+      ┌──────▼────────────────┐
+      │ PostgreSQL Database   │
+      │ (mlit_realestate)     │
+      └───────────────────────┘
+```
+
+### Technology Stack
+
+```
+Client Layer
+├── Streamlit (UI)
+├── Claude API (LLM)
+└── Python scripts
+
+API Layer
+├── FastAPI (web framework)
+├── uvicorn (ASGI server)
+├── pydantic (validation)
+└── httpx (async HTTP)
+
+Database Layer
+├── PostgreSQL (data storage)
+├── psycopg2 (Python driver)
+└── Connection pooling
+
+Container
+└── Docker Compose (orchestration)
+```
+
+### Performance Characteristics
+
+| Endpoint | Latency | Result Size | Cacheable |
+|----------|---------|------------|-----------|
+| Reference data | <10ms | Small | ✓ 24hr |
+| Statistics | 100-500ms | Medium | ✓ 1hr |
+| Price trends | 500ms-2s | Medium | ✓ 1hr |
+| Transactions | 1-5s | Large (paginated) | ✓ 24hr |
+| Median price | 100-500ms | Small | ✓ 1hr |
+
+---
 
 ## Development
 
@@ -489,6 +800,38 @@ curl http://localhost:8000/health
 python -c "from api_client import APIClient; print(APIClient().get_stats_summary())"
 ```
 
+### Development Workflow
+
+1. Edit `api.py`
+2. With `--reload` flag, uvicorn auto-restarts:
+   ```bash
+   uvicorn api:app --reload --port 8000
+   ```
+3. Test endpoint in http://localhost:8000/docs
+4. Add corresponding method to `api_client.py`
+
+---
+
+## Japanese Real Estate Terms
+
+| Term | Meaning |
+|------|---------|
+| **Tsubo** (坪) | Traditional area unit. 1 tsubo ≈ 3.31 m² |
+| **LDK** | L=Living, D=Dining, K=Kitchen. Example: 2LDK = 2 bedrooms + LDK |
+| **Mansion** (マンション) | Concrete apartment/condo building (not a large house) |
+| **Chome** (丁目) | District subdivision, like a block number |
+| **RC/SRC** | Reinforced Concrete / Steel Reinforced Concrete |
+
+---
+
+## Data Source
+
+This service uses the MLIT Real Estate Information Library API. The accuracy, completeness, and timeliness of the data is not guaranteed.
+
+このサービスは、国土交通省不動産情報ライブラリのAPI機能を使用していますが、提供情報の最新性、正確性、完全性等が保証されたものではありません。
+
+---
+
 ## License
 
 MIT
@@ -497,10 +840,8 @@ MIT
 
 An example instance of this project is hosted at https://anil.diwi.org/japan-realestate/
 
-Issues and pull requests welcome.
-
-For detailed architecture and development notes, see:
-- [API.md](API.md) — Full API reference and examples
-- [MCP.md](MCP.md) — MCP tool definitions
-- [ARCHITECTURE.md](ARCHITECTURE.md) — System design and rationale
-- [CLAUDE_EXAMPLE.md](CLAUDE_EXAMPLE.md) — AI integration examples
+Issues and pull requests welcome. For issues:
+1. Check logs: `docker compose logs -f`
+2. Verify database: `psql -d mlit_realestate -c "SELECT COUNT(*) FROM transactions;"`
+3. Test API: `curl http://localhost:8000/health`
+4. See GitHub issues: https://github.com/AnilDaoud/japan-realestate/issues
