@@ -34,6 +34,10 @@ That's it. Wait ~10 seconds for the database to initialize, then open:
 - **Dashboard (UI):** http://localhost:9001
 - **API Docs:** http://localhost:8000/docs
 
+> **After changing any code, always rebuild:** `docker compose up -d --build`.
+> The Python source is baked into the image at build time, so `docker compose restart`
+> (or `up -d` without `--build`) keeps running the **old** code. See "Useful Commands".
+
 | Service | Port | Purpose |
 |---------|------|---------|
 | Streamlit Dashboard | **9001** | Interactive charts & exploration UI |
@@ -244,8 +248,12 @@ docker compose logs -f api
 # View Streamlit app logs only
 docker compose logs -f app
 
-# Restart app after code changes
+# Rebuild and restart after ANY code change (app.py, api.py, api_security.py, etc.)
+# Code is baked into the image, so a plain `docker compose restart` will NOT pick up edits.
 docker compose up -d --build
+
+# Restart only the app/API containers (no rebuild) — use only when nothing changed
+docker compose restart app api
 
 # Stop everything
 docker compose down
@@ -756,10 +764,25 @@ server {
     location / {
         proxy_pass http://localhost:8000;
         proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-For $remote_addr;
     }
 }
 ```
+
+**Important:** nginx must **overwrite** `X-Forwarded-For` with `$remote_addr` (as shown above), not append with `$proxy_add_x_forwarded_for`. The app trusts the **first** forwarded IP only when the request comes from a trusted proxy, so appending could let a spoofed leading token evade rate limiting.
+
+**Ops note — set `TRUSTED_PROXY_IPS`:** When deploying behind nginx (or any reverse proxy/load balancer), set the environment variable `TRUSTED_PROXY_IPS` to the IP address(es) of the immediate proxy that connects directly to the app, comma-separated (e.g. `TRUSTED_PROXY_IPS=127.0.0.1,::1`). Without this, the app cannot trust the forwarded headers and app-side rate limiting will see only the proxy's source IP, bucketing all users together.
+
+- The rate-limit trust logic already ignores spoofed `X-Forwarded-For`/`X-Real-IP` headers from untrusted direct clients, falling back to the direct connection address. Both IPv4 and IPv6 addresses are accepted.
+- Multiple trusted proxies can be listed in `TRUSTED_PROXY_IPS` as comma-separated exact IPs.
+- If nginx is not the internet-facing edge and another LB/CDN sits in front of it, `TRUSTED_PROXY_IPS` must still name the **immediate hop that reaches the app**, not arbitrary client ranges.
+
+**Multi-hop deployments (LB/CDN in front of nginx):** When a load balancer or CDN sits in front of nginx, the client IP seen by nginx is the upstream proxy's IP, not the end-user's. Configure nginx real-IP restoration so the app sees the actual client IP — add `set_real_ip_from <lb_cidr>;`, `real_ip_header X-Forwarded-For;`, and `real_ip_recursive on;` in the `server` block (or a shared `http` context), replacing `<lb_cidr>` with the CIDR range(s) of your trusted upstream proxy(ies). This makes `$remote_addr` (and thus `$binary_remote_addr` used by `limit_req`) reflect the real client IP.
+- If `TRUSTED_PROXY_IPS` is unset, app-side rate limiting uses the proxy's source IP rather than the end-user IP.
+
+**CORS:** `CORS_ORIGINS` may remain `*` for the public no-credentials API. If you want browser access narrowed, set it to explicit origin(s) (comma-separated).
+
+**Health note:** `/health` means the API and database connection are up; it does **not** guarantee the database has been populated with transaction data. To confirm data presence, check `/stats/summary` — it returns aggregate counts (zero/null when the DB is empty). `/stats` returns records by year/quarter and may be empty if there are no transactions.
 
 ---
 
