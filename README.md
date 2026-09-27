@@ -94,14 +94,14 @@ prefectures = client.get_prefectures()
 # Get Tokyo apartment prices (top districts)
 prices = client.get_price_by_district(
     prefecture_code="13",
-    property_types="Apartment",
+    property_types="Pre-owned Condominiums, etc.",
     limit=20
 )
 
 # Search transactions
 transactions = client.get_transactions(
     prefecture_code="13",
-    property_types="Apartment",
+    property_types="Pre-owned Condominiums, etc.",
     year_min=2024,
     price_max=50000000,
     limit=100
@@ -127,7 +127,11 @@ curl http://localhost:8000/prefectures
 curl "http://localhost:8000/median-price?prefecture_code=13"
 
 # Search for houses under ¥50M (2024)
-curl "http://localhost:8000/transactions?prefecture_code=26&property_types=House&year_min=2024&price_max=50000000"
+curl --get "http://localhost:8000/transactions" \
+  --data-urlencode "prefecture_code=26" \
+  --data-urlencode "property_types=Pre-owned House" \
+  --data-urlencode "year_min=2024" \
+  --data-urlencode "price_max=50000000"
 
 # Get price trends (yearly)
 curl "http://localhost:8000/price-trends?prefecture_code=13&frequency=Yearly"
@@ -154,7 +158,7 @@ curl -i http://localhost:8000/prefectures
 |-----|-------------|
 | **Charts** | Time series, histogram, and scatter plots of price trends |
 | **Area Comparison** | Price comparison by ward/city with bar charts, treemaps, and tables |
-| **Districts** | Price trends and YoY changes by district within selected area |
+| **District** | Price trends and YoY changes by district within selected area |
 | **Cohorts** | Analyze prices by building age, property size, or total price |
 | **Valuation** | Estimate property values, check listings, track depreciation |
 
@@ -304,9 +308,9 @@ The four analysis endpoints (`/transactions`, `/price-trends`, `/median-price`, 
 - `prefecture_code` — Prefecture code ("13" for Tokyo, "26" for Kyoto, etc.)
 - `municipality_codes` — Comma-separated codes
 - `districts` — Comma-separated district names
-- `property_types` — Types (Apartment, House, Land, etc.)
-- `structures` — Building structures (RC, SRC, Wood, etc.)
-- `floor_plans` — Floor plans (1LDK, 2DK, etc.)
+- `property_types` — Types. Must use exact labels returned by `/property-types` (e.g., `Pre-owned Condominiums, etc.`)
+- `structures` — Building structures. Must use exact labels returned by `/structures` (e.g., `RC`, `SRC`)
+- `floor_plans` — Floor plans. Must use exact labels returned by `/floor-plans` (e.g., `1LDK`, `2DK`)
 - `year_min`, `year_max` — Transaction year range
 - `price_min`, `price_max` — Total price range in JPY
 - `area_min`, `area_max` — Area range in m²
@@ -334,7 +338,7 @@ All endpoints return JSON. Transaction queries return paginated results:
       "prefecture_code": "13",
       "municipality_code": "13101",
       "district_name": "Marunouchi",
-      "property_type_raw": "Apartment",
+      "property_type_raw": "Pre-owned Condominiums, etc.",
       "trade_price": 65000000,
       "area_m2": 72.5,
       "building_year": 2015,
@@ -351,10 +355,16 @@ All endpoints return JSON. Transaction queries return paginated results:
 
 ### Query Examples
 
-**1. Tokyo Shibuya apartments (last 2 years)**
+Categorical filters (`property_types`, `structures`, `floor_plans`, `districts`) require exact labels. Fetch the accepted values from the reference endpoints `/property-types`, `/structures`, `/floor-plans`, and `/districts`, then pass them as-is. Use `curl --get --data-urlencode` so values containing spaces or commas are sent correctly.
+
+**1. Tokyo Shibuya condominiums**
 
 ```bash
-curl "http://localhost:8000/price-by-district?prefecture_code=13&municipality_codes=13104&property_types=Apartment&limit=20"
+curl --get "http://localhost:8000/price-by-district" \
+  --data-urlencode "prefecture_code=13" \
+  --data-urlencode "municipality_codes=13104" \
+  --data-urlencode "property_types=Pre-owned Condominiums, etc." \
+  --data-urlencode "limit=20"
 ```
 
 **2. Price trends for Tokyo (yearly)**
@@ -366,13 +376,39 @@ curl "http://localhost:8000/price-trends?prefecture_code=13&frequency=Yearly"
 **3. Houses in Kyoto under ¥50M (2023-2024)**
 
 ```bash
-curl "http://localhost:8000/transactions?prefecture_code=26&property_types=House&year_min=2023&year_max=2024&price_max=50000000"
+curl --get "http://localhost:8000/transactions" \
+  --data-urlencode "prefecture_code=26" \
+  --data-urlencode "property_types=Pre-owned House" \
+  --data-urlencode "year_min=2023" \
+  --data-urlencode "year_max=2024" \
+  --data-urlencode "price_max=50000000"
 ```
 
 **4. Recent transactions in Shibuya (¥60M-¥100M range)**
 
 ```bash
 curl "http://localhost:8000/transactions?municipality_codes=13104&price_min=60000000&price_max=100000000&year_min=2024&limit=100"
+```
+
+**5. RC buildings with a 2LDK floor plan built after 2000**
+
+```bash
+curl --get "http://localhost:8000/transactions" \
+  --data-urlencode "prefecture_code=13" \
+  --data-urlencode "structures=RC" \
+  --data-urlencode "floor_plans=2LDK" \
+  --data-urlencode "building_year_min=2000" \
+  --data-urlencode "limit=5"
+```
+
+**6. Transactions in a price-per-m² band**
+
+```bash
+curl --get "http://localhost:8000/transactions" \
+  --data-urlencode "prefecture_code=13" \
+  --data-urlencode "unit_price_min=500000" \
+  --data-urlencode "unit_price_max=900000" \
+  --data-urlencode "limit=5"
 ```
 
 ### Pagination
@@ -412,7 +448,7 @@ curl -X POST http://localhost:8000/mcp/call/search_transactions \
   -H "Content-Type: application/json" \
   -d '{
     "prefecture_code": "13",
-    "property_types": "Apartment",
+    "property_types": "Pre-owned Condominiums, etc.",
     "price_max": 50000000,
     "limit": 10
   }'
@@ -431,13 +467,13 @@ curl -X POST http://localhost:8000/mcp/call/search_transactions \
 
 ### Tool Examples
 
-#### Find affordable apartments in Tokyo
+#### Find affordable condominiums in Tokyo
 
 ```
 Tool: search_transactions
 Inputs:
   prefecture_code: "13"
-  property_types: "Apartment"
+  property_types: "Pre-owned Condominiums, etc."
   price_min: 30000000
   price_max: 50000000
   limit: 50
@@ -449,7 +485,7 @@ Inputs:
 Tool: get_district_prices
 Inputs:
   prefecture_code: "26"
-  property_types: "House"
+  property_types: "Pre-owned House"
   limit: 20
 ```
 
@@ -459,7 +495,7 @@ Inputs:
 Tool: get_price_trends
 Inputs:
   prefecture_code: "13"
-  property_types: "Apartment"
+  property_types: "Pre-owned Condominiums, etc."
   frequency: "Yearly"
 ```
 
@@ -469,7 +505,7 @@ Inputs:
 Tool: search_transactions
 Inputs:
   districts: "Shibuya,Shinjuku"
-  property_types: "Apartment"
+  property_types: "Pre-owned Condominiums, etc."
   year_min: 2023
   limit: 100
 ```
@@ -610,18 +646,18 @@ print(f"Date range: {stats['earliest_year']} to {stats['latest_year']}")
 # Get Tokyo district prices
 districts = client.get_price_by_district(
     prefecture_code="13",
-    property_types="Apartment",
+    property_types="Pre-owned Condominiums, etc.",
     limit=10
 )
 
 df = pd.DataFrame(districts)
-print("\nTop 10 Most Expensive Tokyo Neighborhoods (Apartments):")
-print(df[["district", "median_price", "transaction_count"]].to_string(index=False))
+print("\nTop 10 Most Expensive Tokyo Neighborhoods (Condominiums):")
+print(df[["district_name", "median_price", "transaction_count"]].to_string(index=False))
 
 # Get price trends
 trends = client.get_price_trends(prefecture_code="13", frequency="Yearly")
 df_trends = pd.DataFrame(trends)
-print("\nTokyo Apartment Price Trends (Yearly):")
+print("\nTokyo Condominium Price Trends (Yearly):")
 print(df_trends[["transaction_year", "volume", "median_price"]].to_string(index=False))
 ```
 

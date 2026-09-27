@@ -60,16 +60,72 @@ M2_TO_TSUBO = 1 / TSUBO_TO_M2
 # FILTER HELPERS
 # =============================================================================
 
-def parse_csv_values(value: Optional[str]) -> Optional[List[str]]:
+def parse_csv_values(
+    value: Optional[str], valid_values: Optional[List[str]] = None
+) -> Optional[List[str]]:
     """Parse a comma-separated parameter into a list of trimmed, non-empty values.
 
     Returns None when the input is missing or contains no usable entries.
+
+    When ``valid_values`` is provided, the input is parsed by greedily matching
+    the longest valid label span at each position. This lets categorical labels
+    that themselves contain commas (e.g. ``"Pre-owned Condominiums, etc."``)
+    pass through intact while ordinary comma-separated multi-value filters keep
+    splitting as before. For example, ``"Pre-owned Condominiums, etc.,Pre-owned
+    House"`` correctly parses to ``["Pre-owned Condominiums, etc.",
+    "Pre-owned House"]``.
     """
     if value is None:
         return None
-    values = [item.strip() for item in value.split(",")]
-    values = [item for item in values if item]
+    stripped = value.strip()
+    if not valid_values:
+        values = [item.strip() for item in value.split(",")]
+        values = [item for item in values if item]
+        return values or None
+    if stripped in valid_values:
+        return [stripped]
+    # Greedy longest-match over the comma-separated tokens, but a valid label
+    # may itself contain commas. Sort candidate labels by length (descending)
+    # so the longest valid span wins at each position.
+    valid_set = set(valid_values)
+    valid_sorted = sorted(valid_values, key=len, reverse=True)
+    values = []
+    remaining = stripped
+    while remaining:
+        remaining = remaining.strip()
+        if not remaining:
+            break
+        matched = False
+        for label in valid_sorted:
+            if remaining.startswith(label):
+                # Only accept a match when the remaining string is exactly the
+                # label, or the next character after the label is a comma. This
+                # avoids accepting arbitrary prefix matches like "<label>XYZ".
+                after = remaining[len(label):]
+                if after and not after.startswith(","):
+                    continue
+                values.append(label)
+                remaining = after
+                # Consume a following comma separator if present.
+                if remaining.startswith(","):
+                    remaining = remaining[1:]
+                matched = True
+                break
+        if not matched:
+            # No valid label matched; fall back to a single plain token.
+            token, _, rest = remaining.partition(",")
+            token = token.strip()
+            if token:
+                values.append(token)
+            remaining = rest
     return values or None
+
+
+def normalized_text_expr(column: str) -> str:
+    """Return a SQL expression that normalizes a text column the same way the
+    ingestion path does: replace full-width spaces with normal spaces, trim,
+    and treat empty/whitespace-only results as NULL."""
+    return f"NULLIF(BTRIM(REPLACE({column}, '　', ' ')), '')"
 
 
 def build_filter_conditions(
@@ -113,10 +169,17 @@ def build_filter_conditions(
         (structures, "structure"),
         (floor_plans, "floor_plan"),
     ):
-        parsed = parse_csv_values(value)
+        valid_values = None
+        if column == "property_type_raw" and value:
+            valid_values = get_property_types()
+        parsed = parse_csv_values(value, valid_values)
         if parsed:
+            if column == "municipality_code":
+                expr = col(column)
+            else:
+                expr = normalized_text_expr(col(column))
             placeholders = ",".join(["%s"] * len(parsed))
-            conditions.append(f"{col(column)} IN ({placeholders})")
+            conditions.append(f"{expr} IN ({placeholders})")
             params.extend(parsed)
 
     for value, column, operator in (
@@ -199,50 +262,77 @@ def get_districts(municipality_codes: str):
     codes = tuple(municipality_codes.split(","))
     placeholders = ",".join(["%s"] * len(codes))
     query = f"""
-    SELECT DISTINCT t.district_name, t.municipality_code, m.name_en as municipality_name
+    SELECT DISTINCT {normalized_text_expr("t.district_name")} as district_name, t.municipality_code, m.name_en as municipality_name
     FROM transactions t
     JOIN municipalities m ON m.code = t.municipality_code
     WHERE t.municipality_code IN ({placeholders})
-    ORDER BY t.district_name
+      AND {normalized_text_expr("t.district_name")} IS NOT NULL
+    ORDER BY district_name
     """
     results = run_query(query, codes)
     return results
 
+# TTL for the cached property-type reference values (seconds). Keeps per-request
+# filtering free of a DB roundtrip while letting newly ingested labels eventually
+# be picked up without a process restart.
+PROPERTY_TYPES_CACHE_TTL = 3600
+
+_property_types_cache: Dict[str, Any] = {"timestamp": 0.0, "values": None}
+
+
 @app.get("/property-types")
 def get_property_types():
-    """Get all property types."""
+    """Get all property types.
+
+    Cached at module level so per-request filtering of ``property_types`` does
+    not add a DB roundtrip. The cache refreshes periodically (``PROPERTY_TYPES_
+    CACHE_TTL``) so newly ingested labels are eventually picked up without a
+    process restart.
+    """
+    now = time.time()
+    if (
+        _property_types_cache["values"] is not None
+        and now - _property_types_cache["timestamp"] < PROPERTY_TYPES_CACHE_TTL
+    ):
+        return _property_types_cache["values"]
     query = """
-    SELECT DISTINCT property_type_raw
+    SELECT DISTINCT NULLIF(BTRIM(REPLACE(property_type_raw, '　', ' ')), '') as property_type_raw
     FROM transactions
     WHERE property_type_raw IS NOT NULL
+      AND NULLIF(BTRIM(REPLACE(property_type_raw, '　', ' ')), '') IS NOT NULL
     ORDER BY property_type_raw
     """
     results = run_query(query)
-    return [r["property_type_raw"] for r in results if r["property_type_raw"]]
+    values = [r["property_type_raw"] for r in results if r["property_type_raw"]]
+    _property_types_cache["timestamp"] = now
+    _property_types_cache["values"] = values
+    return values
 
 @app.get("/structures")
 def get_structures():
     """Get all building structure types."""
     query = """
-    SELECT DISTINCT structure
+    SELECT DISTINCT NULLIF(BTRIM(REPLACE(structure, '　', ' ')), '') as structure
     FROM transactions
     WHERE structure IS NOT NULL
+      AND NULLIF(BTRIM(REPLACE(structure, '　', ' ')), '') IS NOT NULL
     ORDER BY structure
     """
     results = run_query(query)
-    return [r["structure"] for r in results]
+    return [r["structure"] for r in results if r["structure"]]
 
 @app.get("/floor-plans")
 def get_floor_plans():
     """Get all floor plan types."""
     query = """
-    SELECT DISTINCT floor_plan
+    SELECT DISTINCT NULLIF(BTRIM(REPLACE(floor_plan, '　', ' ')), '') as floor_plan
     FROM transactions
     WHERE floor_plan IS NOT NULL
+      AND NULLIF(BTRIM(REPLACE(floor_plan, '　', ' ')), '') IS NOT NULL
     ORDER BY floor_plan
     """
     results = run_query(query)
-    return [r["floor_plan"] for r in results]
+    return [r["floor_plan"] for r in results if r["floor_plan"]]
 
 @app.get("/year-range")
 def get_year_range():
@@ -598,7 +688,7 @@ def call_mcp_tool(tool_name: str, params: dict = None):
     POST /mcp/call/search_transactions
     {
         "prefecture_code": "13",
-        "property_types": "Apartment",
+        "property_types": "Pre-owned Condominiums, etc.",
         "price_max": 50000000,
         "limit": 10
     }

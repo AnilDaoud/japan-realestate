@@ -41,15 +41,15 @@ TOOLS = [
                 },
                 "property_types": {
                     "type": "string",
-                    "description": "Comma-separated property types (e.g., 'Apartment,House')"
+                    "description": "Comma-separated property types. Use exact labels returned by /property-types (e.g., 'Pre-owned Condominiums, etc.')"
                 },
                 "structures": {
                     "type": "string",
-                    "description": "Comma-separated building structures (e.g., 'RC,SRC,Wood')"
+                    "description": "Comma-separated building structures. Use exact labels returned by /structures (e.g., 'RC,SRC')"
                 },
                 "floor_plans": {
                     "type": "string",
-                    "description": "Comma-separated floor plans (e.g., '1LDK,2DK')"
+                    "description": "Comma-separated floor plans. Use exact labels returned by /floor-plans (e.g., '1LDK,2DK')"
                 },
                 "year_min": {
                     "type": "integer",
@@ -362,7 +362,7 @@ TOOLS = [
     },
     {
         "name": "list_property_types",
-        "description": "List all available property types (Apartment, House, Land, etc.).",
+        "description": "List all available property types. Use the exact labels returned here as values for the property_types filter.",
         "inputSchema": {
             "type": "object",
             "properties": {}
