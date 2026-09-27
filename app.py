@@ -15,9 +15,12 @@ import psycopg2
 from psycopg2.extras import RealDictCursor
 import os
 import requests
+import logging
 from datetime import datetime
 from urllib.parse import urlencode
 import io
+
+logger = logging.getLogger(__name__)
 
 # =============================================================================
 # GITHUB REPO FOR ISSUES/CONTACT
@@ -336,6 +339,21 @@ def get_db_stats():
         'yearly': yearly.to_dict('records')
     }
 
+def get_total_transactions():
+    """Get total transactions in database (uncached: fast guard check that must
+    reflect newly ingested data without waiting for cache expiry)."""
+    try:
+        query = "SELECT COUNT(*) as count FROM transactions"
+        result = run_query(query)
+        return result['count'].iloc[0] if not result.empty else 0
+    except Exception as e:
+        # Distinguish an empty/not-ready table from a real DB failure so the
+        # empty-state guidance is not shown for outages.
+        if "does not exist" in str(e) or "relation" in str(e):
+            return 0
+        logger.exception("Failed to count transactions")
+        raise
+
 def get_data_quality_filter(quality_mode="exclude_critical"):
     """
     Get WHERE clause fragment for data quality filtering.
@@ -468,6 +486,8 @@ def get_year_range():
         SELECT MIN(transaction_year) as min_year, MAX(transaction_year) as max_year
         FROM transactions
     """)
+    if result.empty or result['min_year'].iloc[0] is None:
+        return None, None
     return int(result['min_year'].iloc[0]), int(result['max_year'].iloc[0])
 
 @st.cache_data(ttl=86400)
@@ -477,6 +497,8 @@ def get_building_year_range():
         FROM transactions
         WHERE building_year IS NOT NULL AND building_year > 1900
     """)
+    if result.empty or result['min_year'].iloc[0] is None:
+        return None, None
     return int(result['min_year'].iloc[0]), int(result['max_year'].iloc[0])
 
 @st.cache_data(ttl=86400)
@@ -576,7 +598,7 @@ def get_latest_median_price(filters):
 
     latest_result = run_query(latest_query, latest_params)
     if latest_result.empty:
-        return None, None
+        return None, None, None, None
 
     latest_year = int(latest_result['transaction_year'].iloc[0])
     latest_quarter = int(latest_result['transaction_quarter'].iloc[0])
@@ -751,6 +773,25 @@ def build_query(select_clause, filters, group_by=None, order_by=None, limit=None
 # UI - SIDEBAR FILTERS
 # =============================================================================
 
+# Guard against an empty database BEFORE any filter widgets that depend on
+# transaction data (prefecture/municipality/year/building-year ranges). Without
+# this, sliders built from NULL ranges would crash on an empty transactions table.
+total_txns = get_total_transactions()
+if total_txns == 0:
+    st.info(
+        "**The database is empty.**\n\n"
+        "Import your data backup or ingest fresh data from the MLIT API:\n\n"
+        "```bash\n"
+        "docker exec -i japan-realestate-db psql -U postgres -d mlit_realestate < backup.sql\n"
+        "```\n\n"
+        "or\n\n"
+        "```bash\n"
+        "docker exec -it japan-realestate-app python dbutils/ingest_data.py --full\n"
+        "```\n\n"
+        "See the **Data Management** section of the README for details."
+    )
+    st.stop()
+
 # API/MCP info banner at top of sidebar
 with st.sidebar:
     st.info(
@@ -851,8 +892,11 @@ else:
             selected_districts = None
 
 # Station filter
+# NOTE: Station reference data / nearest_station_code linkage is not populated
+# by ingestion. Hide the filter entirely until that data exists, so users never
+# see an empty or misleading "Near Station" control.
 stations = get_stations(selected_prefecture)
-if not stations.empty and 'name' in stations.columns:
+if not stations.empty and 'name' in stations.columns and len(stations) > 0:
     station_options = dict(zip(stations['name'], stations['code']))
     selected_stations = st.sidebar.multiselect(
         "🚉 Near Station",
@@ -943,14 +987,20 @@ year_range = st.sidebar.slider(
 
 # Building year range
 min_build_year, max_build_year = get_building_year_range()
-building_year_range = st.sidebar.slider(
-    "Year Built",
-    min_value=min_build_year,
-    max_value=max_build_year,
-    value=(min_build_year, max_build_year),
-    help=TOOLTIPS["building_age"]
-)
-building_year_range = building_year_range if building_year_range != (min_build_year, max_build_year) else None
+if min_build_year is None or max_build_year is None:
+    # No valid building_year values in the data; skip the filter entirely
+    # rather than building a slider with None bounds (which would crash).
+    building_year_range = None
+    st.sidebar.info("No valid building-year data available for filtering.")
+else:
+    building_year_range = st.sidebar.slider(
+        "Year Built",
+        min_value=min_build_year,
+        max_value=max_build_year,
+        value=(min_build_year, max_build_year),
+        help=TOOLTIPS["building_age"]
+    )
+    building_year_range = building_year_range if building_year_range != (min_build_year, max_build_year) else None
 
 st.sidebar.header("📊 Chart Options")
 
@@ -1815,18 +1865,6 @@ def get_property_type_trends(filters):
 
 st.title("🏠 Japan Real Estate Analytics")
 
-# Get total transaction count
-@st.cache_data(ttl=86400)
-def get_total_transactions():
-    """Get total transactions in database."""
-    try:
-        query = "SELECT COUNT(*) as count FROM transactions"
-        result = run_query(query)
-        return result['count'].iloc[0] if not result.empty else 0
-    except:
-        return 0
-
-total_txns = get_total_transactions()
 txn_display = f"{total_txns / 1e6:.1f}M" if total_txns >= 1e6 else f"{total_txns / 1e3:.0f}K"
 st.caption(f"Data source: MLIT Real Estate Information Library | {txn_display}+ transactions")
 
@@ -2095,16 +2133,30 @@ if selected_tab == "📈 Charts":
                 plot_data = plot_data[(plot_data['building_age'] >= 0) & (plot_data['building_age'] <= 60)]
 
             if not plot_data.empty:
-                fig = px.scatter(
-                    plot_data,
-                    x=x_col,
-                    y=y_col,
-                    color='structure' if 'structure' in plot_data.columns else None,
-                    opacity=0.3,
-                    trendline='ols',
-                    title=f'{scatter_y} vs {scatter_x}',
-                    labels={x_col: scatter_x, y_col: scatter_y}
-                )
+                try:
+                    fig = px.scatter(
+                        plot_data,
+                        x=x_col,
+                        y=y_col,
+                        color='structure' if 'structure' in plot_data.columns else None,
+                        opacity=0.3,
+                        trendline='ols',
+                        title=f'{scatter_y} vs {scatter_x}',
+                        labels={x_col: scatter_x, y_col: scatter_y}
+                    )
+                except Exception as e:
+                    # Missing deps (ImportError) or runtime trendline failures:
+                    # degrade gracefully to a plain scatter instead of crashing.
+                    logger.warning("OLS trendline failed (%s); falling back to plain scatter", e)
+                    fig = px.scatter(
+                        plot_data,
+                        x=x_col,
+                        y=y_col,
+                        color='structure' if 'structure' in plot_data.columns else None,
+                        opacity=0.3,
+                        title=f'{scatter_y} vs {scatter_x}',
+                        labels={x_col: scatter_x, y_col: scatter_y}
+                    )
                 fig.update_layout(
                     yaxis_tickformat=',',
                     height=600
@@ -2113,17 +2165,24 @@ if selected_tab == "📈 Charts":
 
                 # Regression stats
                 if len(plot_data) > 10:
-                    from scipy import stats
-                    valid = plot_data.dropna(subset=[x_col, y_col])
-                    if len(valid) > 10:
-                        slope, intercept, r_value, p_value, std_err = stats.linregress(
-                            valid[x_col],
-                            valid[y_col]
-                        )
-                        if x_col == "building_age":
-                            st.info(f"**Regression:** {scatter_y} changes by ¥{slope:,.0f} per year of age (R2 = {r_value**2:.3f})")
-                        else:
-                            st.info(f"**Regression:** R2 = {r_value**2:.3f}")
+                    try:
+                        from scipy import stats
+                    except ImportError:
+                        stats = None
+                    if stats is not None:
+                        try:
+                            valid = plot_data.dropna(subset=[x_col, y_col])
+                            if len(valid) > 10:
+                                slope, intercept, r_value, p_value, std_err = stats.linregress(
+                                    valid[x_col],
+                                    valid[y_col]
+                                )
+                                if x_col == "building_age":
+                                    st.info(f"**Regression:** {scatter_y} changes by ¥{slope:,.0f} per year of age (R2 = {r_value**2:.3f})")
+                                else:
+                                    st.info(f"**Regression:** R2 = {r_value**2:.3f}")
+                        except Exception as e:
+                            logger.warning("Regression stats failed (%s); skipping", e)
             else:
                 st.warning("No valid data for the selected axes")
         else:

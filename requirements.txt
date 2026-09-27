@@ -4,5 +4,7 @@ uvicorn>=0.24.0
 psycopg2-binary>=2.9.0
 pandas>=2.0.0
 plotly>=5.18.0
+scipy>=1.10.0
+statsmodels>=0.14.0
 requests>=2.31.0
 httpx>=0.24.0

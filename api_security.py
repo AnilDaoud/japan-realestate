@@ -4,7 +4,9 @@ Public API - no authentication required, IP-based rate limiting only.
 """
 
 import time
+import os
 import logging
+import ipaddress
 from collections import defaultdict
 from datetime import datetime, timedelta
 from fastapi import FastAPI, HTTPException, Request
@@ -84,12 +86,43 @@ def add_rate_limit_middleware(app: FastAPI):
         if request.url.path == "/health":
             return await call_next(request)
 
-        # Get client IP (prefer forwarded headers from reverse proxy)
-        forwarded = request.headers.get("x-forwarded-for")
-        if forwarded:
-            client_ip = forwarded.split(",")[0].strip()
+        # Get client IP. Only trust proxy headers from a known reverse proxy;
+        # otherwise fall back to the direct connection address so spoofed
+        # X-Forwarded-For / X-Real-IP headers cannot bypass rate limiting.
+        # Set TRUSTED_PROXY_IPS (comma-separated) to the reverse proxy address(es).
+        trusted_proxies = {
+            ip.strip()
+            for ip in os.environ.get("TRUSTED_PROXY_IPS", "").split(",")
+            if ip.strip()
+        }
+        client_host = request.client.host if request.client else "unknown"
+
+        if trusted_proxies and client_host in trusted_proxies:
+            # The trusted proxy MUST overwrite/sanitize X-Forwarded-For (not
+            # blindly append), otherwise a spoofed first token could still
+            # evade rate limiting.
+            def _valid_ip(value):
+                # Accept both IPv4 and IPv6; reject anything that is not a
+                # parseable address (e.g. spoofed hostnames or garbage).
+                try:
+                    ipaddress.ip_address(value)
+                    return True
+                except ValueError:
+                    return False
+
+            forwarded = request.headers.get("x-forwarded-for")
+            if forwarded:
+                first = forwarded.split(",")[0].strip()
+                # Validate the first token is a plausible IP before trusting it.
+                if first and _valid_ip(first):
+                    client_ip = first
+                else:
+                    client_ip = client_host
+            else:
+                real_ip = request.headers.get("x-real-ip")
+                client_ip = real_ip.strip() if real_ip and _valid_ip(real_ip.strip()) else client_host
         else:
-            client_ip = request.headers.get("x-real-ip") or (request.client.host if request.client else "unknown")
+            client_ip = client_host
 
         # Check rate limit
         is_allowed, headers = check_rate_limit(client_ip)
