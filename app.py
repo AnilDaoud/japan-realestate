@@ -262,8 +262,8 @@ st.set_page_config(
 )
 
 # Tab state management via query params
-TAB_NAMES = ["charts", "map", "cohorts", "micro", "valuation", "insights", "data", "quality"]
-TAB_LABELS = ["📈 Charts", "🗺️ Map", "📊 Cohorts", "📍 District", "💰 Valuation", "🔭 Insights", "🔌 API & MCP", "📊 Data Audit"]
+TAB_NAMES = ["charts", "areas", "cohorts", "micro", "valuation", "insights", "data", "quality"]
+TAB_LABELS = ["📈 Charts", "🏙️ Area Comparison", "📊 Cohorts", "📍 District", "💰 Valuation", "🔭 Insights", "🔌 API & MCP", "📊 Data Audit"]
 
 INSIGHT_CHOICES = {
     "🔧 Renovation Premium Crossover":        "renovation",
@@ -286,6 +286,10 @@ def get_current_tab():
     """Get current tab from query params, default to first tab."""
     params = st.query_params
     tab = params.get("tab", TAB_NAMES[0])
+    # Backward compatibility: legacy shared URLs use tab=map for the renamed
+    # Area Comparison tab.
+    if tab == "map":
+        tab = "areas"
     if tab in TAB_NAMES:
         return TAB_NAMES.index(tab)
     return 0
@@ -516,8 +520,8 @@ def get_stations(prefecture_code):
     """, (prefecture_code,))
 
 @st.cache_data(ttl=86400)
-def get_map_data(filters, latest_only=False):
-    """Get aggregated price data by municipality for map visualization.
+def get_area_comparison_data(filters, latest_only=False):
+    """Get aggregated price data by municipality for area comparison.
 
     Args:
         filters: Standard filters dict
@@ -2188,28 +2192,28 @@ if selected_tab == "📈 Charts":
         else:
             st.warning("No data available for selected filters")
 
-# ============= MAP TAB =============
-elif selected_tab == "🗺️ Map":
-    st.subheader(f"Price Map: {selected_prefecture_name}")
+# ============= AREA COMPARISON TAB =============
+elif selected_tab == "🏙️ Area Comparison":
+    st.subheader(f"Area Comparison: {selected_prefecture_name}")
 
     # Toggle for data mode
-    map_mode = st.radio(
+    area_mode = st.radio(
         "Price Data",
         options=[f"Latest Year ({year_range[1]})", f"Full Period ({year_range[0]}-{year_range[1]})"],
         index=0,  # Default to latest year
         horizontal=True,
-        key="map_mode"
+        key="area_mode"
     )
-    use_latest_only = map_mode.startswith("Latest")
+    use_latest_only = area_mode.startswith("Latest")
 
-    with st.spinner("Loading map data..."):
-        map_data = get_map_data(filters, latest_only=use_latest_only)
+    with st.spinner("Loading area comparison data..."):
+        area_data = get_area_comparison_data(filters, latest_only=use_latest_only)
 
-    if not map_data.empty:
+    if not area_data.empty:
         # Apply conversions
         unit_label = get_unit_label()
 
-        def convert_map_price(price):
+        def convert_area_price(price):
             if price is None:
                 return None
             result = float(price)  # Convert Decimal to float
@@ -2219,17 +2223,17 @@ elif selected_tab == "🗺️ Map":
                 result = convert_to_tsubo(result)
             return result
 
-        map_data['display_median'] = map_data['median_price_m2'].apply(convert_map_price)
-        map_data['display_avg'] = map_data['avg_price_m2'].apply(convert_map_price)
+        area_data['display_median'] = area_data['median_price_m2'].apply(convert_area_price)
+        area_data['display_avg'] = area_data['avg_price_m2'].apply(convert_area_price)
 
-        # Create bar chart (map choropleth would need GeoJSON which is complex)
+        # Create bar chart (a real choropleth would need GeoJSON which is complex)
         fig = px.bar(
-            map_data.head(30),
+            area_data.head(30),
             x='name',
             y='display_median',
             color='display_median',
             color_continuous_scale='RdYlGn_r',
-            title=f'Median Price by Ward/City ({unit_label}) - {map_mode}',
+            title=f'Median Price by Ward/City ({unit_label}) - {area_mode}',
             labels={'display_median': unit_label, 'name': 'Ward/City'},
             text='transactions'
         )
@@ -2245,7 +2249,7 @@ elif selected_tab == "🗺️ Map":
         # Also show as a treemap for visual comparison
         st.subheader("Price Treemap")
         fig2 = px.treemap(
-            map_data,
+            area_data,
             path=['name'],
             values='transactions',
             color='display_median',
@@ -2259,7 +2263,7 @@ elif selected_tab == "🗺️ Map":
         st.subheader("Data by Ward/City")
 
         # Create display dataframe with converted values for export
-        export_df = map_data[['name', 'transactions', 'display_median', 'display_avg']].copy()
+        export_df = area_data[['name', 'transactions', 'display_median', 'display_avg']].copy()
         export_df.columns = ['Ward/City', 'Transactions', f'Median ({unit_label})', f'Average ({unit_label})']
 
         st.dataframe(
@@ -2277,7 +2281,7 @@ elif selected_tab == "🗺️ Map":
         st.download_button(
             label="📥 Download CSV",
             data=csv_data,
-            file_name=f"price_map_{selected_prefecture_name}_{currency}_{year_range[1] if use_latest_only else f'{year_range[0]}-{year_range[1]}'}.csv",
+            file_name=f"area_prices_{selected_prefecture_name}_{currency}_{year_range[1] if use_latest_only else f'{year_range[0]}-{year_range[1]}'}.csv",
             mime="text/csv"
         )
     else:

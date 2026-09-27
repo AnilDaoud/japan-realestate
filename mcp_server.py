@@ -43,6 +43,14 @@ TOOLS = [
                     "type": "string",
                     "description": "Comma-separated property types (e.g., 'Apartment,House')"
                 },
+                "structures": {
+                    "type": "string",
+                    "description": "Comma-separated building structures (e.g., 'RC,SRC,Wood')"
+                },
+                "floor_plans": {
+                    "type": "string",
+                    "description": "Comma-separated floor plans (e.g., '1LDK,2DK')"
+                },
                 "year_min": {
                     "type": "integer",
                     "description": "Minimum transaction year"
@@ -67,10 +75,26 @@ TOOLS = [
                     "type": "number",
                     "description": "Maximum area in m²"
                 },
+                "building_year_min": {
+                    "type": "integer",
+                    "description": "Minimum building year"
+                },
+                "building_year_max": {
+                    "type": "integer",
+                    "description": "Maximum building year"
+                },
+                "unit_price_min": {
+                    "type": "number",
+                    "description": "Minimum unit price in JPY per m²"
+                },
+                "unit_price_max": {
+                    "type": "number",
+                    "description": "Maximum unit price in JPY per m²"
+                },
                 "limit": {
                     "type": "integer",
-                    "description": "Results per page (default 100, max 1000)",
-                    "default": 100
+                    "description": "Results per page (default 1000, max 10000)",
+                    "default": 1000
                 },
                 "offset": {
                     "type": "integer",
@@ -103,6 +127,54 @@ TOOLS = [
                     "type": "string",
                     "description": "Comma-separated property types"
                 },
+                "structures": {
+                    "type": "string",
+                    "description": "Comma-separated building structures"
+                },
+                "floor_plans": {
+                    "type": "string",
+                    "description": "Comma-separated floor plans"
+                },
+                "year_min": {
+                    "type": "integer",
+                    "description": "Minimum transaction year"
+                },
+                "year_max": {
+                    "type": "integer",
+                    "description": "Maximum transaction year"
+                },
+                "price_min": {
+                    "type": "number",
+                    "description": "Minimum price in JPY"
+                },
+                "price_max": {
+                    "type": "number",
+                    "description": "Maximum price in JPY"
+                },
+                "area_min": {
+                    "type": "number",
+                    "description": "Minimum area in m²"
+                },
+                "area_max": {
+                    "type": "number",
+                    "description": "Maximum area in m²"
+                },
+                "building_year_min": {
+                    "type": "integer",
+                    "description": "Minimum building year"
+                },
+                "building_year_max": {
+                    "type": "integer",
+                    "description": "Maximum building year"
+                },
+                "unit_price_min": {
+                    "type": "number",
+                    "description": "Minimum unit price in JPY per m²"
+                },
+                "unit_price_max": {
+                    "type": "number",
+                    "description": "Maximum unit price in JPY per m²"
+                },
                 "frequency": {
                     "type": "string",
                     "enum": ["Quarterly", "Yearly"],
@@ -110,7 +182,7 @@ TOOLS = [
                     "default": "Quarterly"
                 }
             },
-            "required": ["prefecture_code"]
+            "required": []
         }
     },
     {
@@ -127,9 +199,61 @@ TOOLS = [
                     "type": "string",
                     "description": "Comma-separated municipality codes"
                 },
+                "districts": {
+                    "type": "string",
+                    "description": "Comma-separated district names"
+                },
                 "property_types": {
                     "type": "string",
                     "description": "Comma-separated property types"
+                },
+                "structures": {
+                    "type": "string",
+                    "description": "Comma-separated building structures"
+                },
+                "floor_plans": {
+                    "type": "string",
+                    "description": "Comma-separated floor plans"
+                },
+                "year_min": {
+                    "type": "integer",
+                    "description": "Minimum transaction year"
+                },
+                "year_max": {
+                    "type": "integer",
+                    "description": "Maximum transaction year"
+                },
+                "price_min": {
+                    "type": "number",
+                    "description": "Minimum price in JPY"
+                },
+                "price_max": {
+                    "type": "number",
+                    "description": "Maximum price in JPY"
+                },
+                "area_min": {
+                    "type": "number",
+                    "description": "Minimum area in m²"
+                },
+                "area_max": {
+                    "type": "number",
+                    "description": "Maximum area in m²"
+                },
+                "building_year_min": {
+                    "type": "integer",
+                    "description": "Minimum building year"
+                },
+                "building_year_max": {
+                    "type": "integer",
+                    "description": "Maximum building year"
+                },
+                "unit_price_min": {
+                    "type": "number",
+                    "description": "Minimum unit price in JPY per m²"
+                },
+                "unit_price_max": {
+                    "type": "number",
+                    "description": "Maximum unit price in JPY per m²"
                 },
                 "limit": {
                     "type": "integer",
@@ -137,7 +261,7 @@ TOOLS = [
                     "default": 50
                 }
             },
-            "required": ["prefecture_code"]
+            "required": []
         }
     },
     {
@@ -154,12 +278,64 @@ TOOLS = [
                     "type": "string",
                     "description": "Comma-separated municipality codes"
                 },
+                "districts": {
+                    "type": "string",
+                    "description": "Comma-separated district names"
+                },
                 "property_types": {
                     "type": "string",
                     "description": "Comma-separated property types"
+                },
+                "structures": {
+                    "type": "string",
+                    "description": "Comma-separated building structures"
+                },
+                "floor_plans": {
+                    "type": "string",
+                    "description": "Comma-separated floor plans"
+                },
+                "year_min": {
+                    "type": "integer",
+                    "description": "Minimum transaction year"
+                },
+                "year_max": {
+                    "type": "integer",
+                    "description": "Maximum transaction year"
+                },
+                "price_min": {
+                    "type": "number",
+                    "description": "Minimum price in JPY"
+                },
+                "price_max": {
+                    "type": "number",
+                    "description": "Maximum price in JPY"
+                },
+                "area_min": {
+                    "type": "number",
+                    "description": "Minimum area in m²"
+                },
+                "area_max": {
+                    "type": "number",
+                    "description": "Maximum area in m²"
+                },
+                "building_year_min": {
+                    "type": "integer",
+                    "description": "Minimum building year"
+                },
+                "building_year_max": {
+                    "type": "integer",
+                    "description": "Maximum building year"
+                },
+                "unit_price_min": {
+                    "type": "number",
+                    "description": "Minimum unit price in JPY per m²"
+                },
+                "unit_price_max": {
+                    "type": "number",
+                    "description": "Maximum unit price in JPY per m²"
                 }
             },
-            "required": ["prefecture_code"]
+            "required": []
         }
     },
     {
@@ -217,12 +393,19 @@ async def search_transactions(
     price_max: Optional[float] = None,
     area_min: Optional[float] = None,
     area_max: Optional[float] = None,
-    limit: int = 100,
+    limit: int = 1000,
     offset: int = 0,
+    *,
+    structures: Optional[str] = None,
+    floor_plans: Optional[str] = None,
+    building_year_min: Optional[int] = None,
+    building_year_max: Optional[int] = None,
+    unit_price_min: Optional[float] = None,
+    unit_price_max: Optional[float] = None,
 ) -> Dict[str, Any]:
     """Search transactions."""
     async with httpx.AsyncClient() as client:
-        params = {"limit": limit, "offset": offset}
+        params: Dict[str, Any] = {"limit": limit, "offset": offset}
         if prefecture_code:
             params["prefecture_code"] = prefecture_code
         if municipality_codes:
@@ -231,77 +414,206 @@ async def search_transactions(
             params["districts"] = districts
         if property_types:
             params["property_types"] = property_types
-        if year_min:
+        if structures:
+            params["structures"] = structures
+        if floor_plans:
+            params["floor_plans"] = floor_plans
+        if year_min is not None:
             params["year_min"] = year_min
-        if year_max:
+        if year_max is not None:
             params["year_max"] = year_max
-        if price_min:
+        if price_min is not None:
             params["price_min"] = price_min
-        if price_max:
+        if price_max is not None:
             params["price_max"] = price_max
-        if area_min:
+        if area_min is not None:
             params["area_min"] = area_min
-        if area_max:
+        if area_max is not None:
             params["area_max"] = area_max
+        if building_year_min is not None:
+            params["building_year_min"] = building_year_min
+        if building_year_max is not None:
+            params["building_year_max"] = building_year_max
+        if unit_price_min is not None:
+            params["unit_price_min"] = unit_price_min
+        if unit_price_max is not None:
+            params["unit_price_max"] = unit_price_max
 
         response = await client.get(f"{API_BASE_URL}/transactions", params=params)
         return response.json()
 
 async def get_price_trends(
-    prefecture_code: str,
+    prefecture_code: Optional[str] = None,
     municipality_codes: Optional[str] = None,
     districts: Optional[str] = None,
     property_types: Optional[str] = None,
     frequency: str = "Quarterly",
+    *,
+    structures: Optional[str] = None,
+    floor_plans: Optional[str] = None,
+    year_min: Optional[int] = None,
+    year_max: Optional[int] = None,
+    price_min: Optional[float] = None,
+    price_max: Optional[float] = None,
+    area_min: Optional[float] = None,
+    area_max: Optional[float] = None,
+    building_year_min: Optional[int] = None,
+    building_year_max: Optional[int] = None,
+    unit_price_min: Optional[float] = None,
+    unit_price_max: Optional[float] = None,
 ) -> List[Dict]:
     """Get price trends."""
     async with httpx.AsyncClient() as client:
-        params = {
-            "prefecture_code": prefecture_code,
-            "frequency": frequency
-        }
+        params: Dict[str, Any] = {"frequency": frequency}
+        if prefecture_code:
+            params["prefecture_code"] = prefecture_code
         if municipality_codes:
             params["municipality_codes"] = municipality_codes
         if districts:
             params["districts"] = districts
         if property_types:
             params["property_types"] = property_types
+        if structures:
+            params["structures"] = structures
+        if floor_plans:
+            params["floor_plans"] = floor_plans
+        if year_min is not None:
+            params["year_min"] = year_min
+        if year_max is not None:
+            params["year_max"] = year_max
+        if price_min is not None:
+            params["price_min"] = price_min
+        if price_max is not None:
+            params["price_max"] = price_max
+        if area_min is not None:
+            params["area_min"] = area_min
+        if area_max is not None:
+            params["area_max"] = area_max
+        if building_year_min is not None:
+            params["building_year_min"] = building_year_min
+        if building_year_max is not None:
+            params["building_year_max"] = building_year_max
+        if unit_price_min is not None:
+            params["unit_price_min"] = unit_price_min
+        if unit_price_max is not None:
+            params["unit_price_max"] = unit_price_max
 
         response = await client.get(f"{API_BASE_URL}/price-trends", params=params)
         return response.json()
 
 async def get_district_prices(
-    prefecture_code: str,
+    prefecture_code: Optional[str] = None,
     municipality_codes: Optional[str] = None,
     property_types: Optional[str] = None,
     limit: int = 50,
+    *,
+    districts: Optional[str] = None,
+    structures: Optional[str] = None,
+    floor_plans: Optional[str] = None,
+    year_min: Optional[int] = None,
+    year_max: Optional[int] = None,
+    price_min: Optional[float] = None,
+    price_max: Optional[float] = None,
+    area_min: Optional[float] = None,
+    area_max: Optional[float] = None,
+    building_year_min: Optional[int] = None,
+    building_year_max: Optional[int] = None,
+    unit_price_min: Optional[float] = None,
+    unit_price_max: Optional[float] = None,
 ) -> List[Dict]:
     """Get prices by district."""
     async with httpx.AsyncClient() as client:
-        params = {
-            "prefecture_code": prefecture_code,
-            "limit": limit
-        }
+        params: Dict[str, Any] = {"limit": limit}
+        if prefecture_code:
+            params["prefecture_code"] = prefecture_code
         if municipality_codes:
             params["municipality_codes"] = municipality_codes
+        if districts:
+            params["districts"] = districts
         if property_types:
             params["property_types"] = property_types
+        if structures:
+            params["structures"] = structures
+        if floor_plans:
+            params["floor_plans"] = floor_plans
+        if year_min is not None:
+            params["year_min"] = year_min
+        if year_max is not None:
+            params["year_max"] = year_max
+        if price_min is not None:
+            params["price_min"] = price_min
+        if price_max is not None:
+            params["price_max"] = price_max
+        if area_min is not None:
+            params["area_min"] = area_min
+        if area_max is not None:
+            params["area_max"] = area_max
+        if building_year_min is not None:
+            params["building_year_min"] = building_year_min
+        if building_year_max is not None:
+            params["building_year_max"] = building_year_max
+        if unit_price_min is not None:
+            params["unit_price_min"] = unit_price_min
+        if unit_price_max is not None:
+            params["unit_price_max"] = unit_price_max
 
         response = await client.get(f"{API_BASE_URL}/price-by-district", params=params)
         return response.json()
 
 async def get_median_price(
-    prefecture_code: str,
+    prefecture_code: Optional[str] = None,
     municipality_codes: Optional[str] = None,
     property_types: Optional[str] = None,
+    *,
+    districts: Optional[str] = None,
+    structures: Optional[str] = None,
+    floor_plans: Optional[str] = None,
+    year_min: Optional[int] = None,
+    year_max: Optional[int] = None,
+    price_min: Optional[float] = None,
+    price_max: Optional[float] = None,
+    area_min: Optional[float] = None,
+    area_max: Optional[float] = None,
+    building_year_min: Optional[int] = None,
+    building_year_max: Optional[int] = None,
+    unit_price_min: Optional[float] = None,
+    unit_price_max: Optional[float] = None,
 ) -> Dict:
     """Get median prices."""
     async with httpx.AsyncClient() as client:
-        params = {"prefecture_code": prefecture_code}
+        params: Dict[str, Any] = {}
+        if prefecture_code:
+            params["prefecture_code"] = prefecture_code
         if municipality_codes:
             params["municipality_codes"] = municipality_codes
+        if districts:
+            params["districts"] = districts
         if property_types:
             params["property_types"] = property_types
+        if structures:
+            params["structures"] = structures
+        if floor_plans:
+            params["floor_plans"] = floor_plans
+        if year_min is not None:
+            params["year_min"] = year_min
+        if year_max is not None:
+            params["year_max"] = year_max
+        if price_min is not None:
+            params["price_min"] = price_min
+        if price_max is not None:
+            params["price_max"] = price_max
+        if area_min is not None:
+            params["area_min"] = area_min
+        if area_max is not None:
+            params["area_max"] = area_max
+        if building_year_min is not None:
+            params["building_year_min"] = building_year_min
+        if building_year_max is not None:
+            params["building_year_max"] = building_year_max
+        if unit_price_min is not None:
+            params["unit_price_min"] = unit_price_min
+        if unit_price_max is not None:
+            params["unit_price_max"] = unit_price_max
 
         response = await client.get(f"{API_BASE_URL}/median-price", params=params)
         return response.json()

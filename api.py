@@ -57,6 +57,93 @@ TSUBO_TO_M2 = 3.30579
 M2_TO_TSUBO = 1 / TSUBO_TO_M2
 
 # =============================================================================
+# FILTER HELPERS
+# =============================================================================
+
+def parse_csv_values(value: Optional[str]) -> Optional[List[str]]:
+    """Parse a comma-separated parameter into a list of trimmed, non-empty values.
+
+    Returns None when the input is missing or contains no usable entries.
+    """
+    if value is None:
+        return None
+    values = [item.strip() for item in value.split(",")]
+    values = [item for item in values if item]
+    return values or None
+
+
+def build_filter_conditions(
+    prefecture_code: Optional[str] = None,
+    municipality_codes: Optional[str] = None,
+    districts: Optional[str] = None,
+    property_types: Optional[str] = None,
+    structures: Optional[str] = None,
+    floor_plans: Optional[str] = None,
+    year_min: Optional[int] = None,
+    year_max: Optional[int] = None,
+    price_min: Optional[float] = None,
+    price_max: Optional[float] = None,
+    area_min: Optional[float] = None,
+    area_max: Optional[float] = None,
+    building_year_min: Optional[int] = None,
+    building_year_max: Optional[int] = None,
+    unit_price_min: Optional[float] = None,
+    unit_price_max: Optional[float] = None,
+    table_alias: str = "",
+) -> tuple:
+    """Build shared WHERE conditions and params for the analysis endpoints.
+
+    Returns a (conditions, params) tuple. ``table_alias`` (e.g. ``"t."``) is
+    prepended to column names when the query joins other tables.
+    """
+    conditions = []
+    params = []
+
+    def col(name: str) -> str:
+        return f"{table_alias}{name}"
+
+    if prefecture_code:
+        conditions.append(f"{col('prefecture_code')} = %s")
+        params.append(prefecture_code)
+
+    for value, column in (
+        (municipality_codes, "municipality_code"),
+        (districts, "district_name"),
+        (property_types, "property_type_raw"),
+        (structures, "structure"),
+        (floor_plans, "floor_plan"),
+    ):
+        parsed = parse_csv_values(value)
+        if parsed:
+            placeholders = ",".join(["%s"] * len(parsed))
+            conditions.append(f"{col(column)} IN ({placeholders})")
+            params.extend(parsed)
+
+    for value, column, operator in (
+        (year_min, "transaction_year", ">="),
+        (year_max, "transaction_year", "<="),
+        (price_min, "trade_price", ">="),
+        (price_max, "trade_price", "<="),
+        (area_min, "area_m2", ">="),
+        (area_max, "area_m2", "<="),
+        (building_year_min, "building_year", ">="),
+        (building_year_max, "building_year", "<="),
+        (unit_price_min, "unit_price", ">="),
+        (unit_price_max, "unit_price", "<="),
+    ):
+        if value is not None:
+            conditions.append(f"{col(column)} {operator} %s")
+            params.append(value)
+
+    return conditions, params
+
+
+def build_where_clause(conditions: List[str]) -> str:
+    """Render a list of conditions into a SQL WHERE clause (or empty string)."""
+    return " WHERE " + " AND ".join(conditions) if conditions else ""
+
+
+# =============================================================================
 # DATABASE HELPERS
 # =============================================================================
 
@@ -229,68 +316,45 @@ def get_transactions(
     municipality_codes: Optional[str] = None,
     districts: Optional[str] = None,
     property_types: Optional[str] = None,
+    structures: Optional[str] = None,
+    floor_plans: Optional[str] = None,
     year_min: Optional[int] = None,
     year_max: Optional[int] = None,
     price_min: Optional[float] = None,
     price_max: Optional[float] = None,
     area_min: Optional[float] = None,
     area_max: Optional[float] = None,
+    building_year_min: Optional[int] = None,
+    building_year_max: Optional[int] = None,
+    unit_price_min: Optional[float] = None,
+    unit_price_max: Optional[float] = None,
     limit: Annotated[int, Query(le=10000)] = 1000,
     offset: int = 0,
 ):
     """Query transactions with flexible filters."""
     limit = max(1, min(limit, 10000))
     offset = max(0, offset)
-    conditions = []
-    params = []
 
-    if prefecture_code:
-        conditions.append("prefecture_code = %s")
-        params.append(prefecture_code)
+    conditions, params = build_filter_conditions(
+        prefecture_code=prefecture_code,
+        municipality_codes=municipality_codes,
+        districts=districts,
+        property_types=property_types,
+        structures=structures,
+        floor_plans=floor_plans,
+        year_min=year_min,
+        year_max=year_max,
+        price_min=price_min,
+        price_max=price_max,
+        area_min=area_min,
+        area_max=area_max,
+        building_year_min=building_year_min,
+        building_year_max=building_year_max,
+        unit_price_min=unit_price_min,
+        unit_price_max=unit_price_max,
+    )
 
-    if municipality_codes:
-        codes = tuple(municipality_codes.split(","))
-        placeholders = ",".join(["%s"] * len(codes))
-        conditions.append(f"municipality_code IN ({placeholders})")
-        params.extend(codes)
-
-    if districts:
-        district_list = tuple(districts.split(","))
-        placeholders = ",".join(["%s"] * len(district_list))
-        conditions.append(f"district_name IN ({placeholders})")
-        params.extend(district_list)
-
-    if property_types:
-        types = tuple(property_types.split(","))
-        placeholders = ",".join(["%s"] * len(types))
-        conditions.append(f"property_type_raw IN ({placeholders})")
-        params.extend(types)
-
-    if year_min:
-        conditions.append("transaction_year >= %s")
-        params.append(year_min)
-
-    if year_max:
-        conditions.append("transaction_year <= %s")
-        params.append(year_max)
-
-    if price_min:
-        conditions.append("trade_price >= %s")
-        params.append(price_min)
-
-    if price_max:
-        conditions.append("trade_price <= %s")
-        params.append(price_max)
-
-    if area_min:
-        conditions.append("area_m2 >= %s")
-        params.append(area_min)
-
-    if area_max:
-        conditions.append("area_m2 <= %s")
-        params.append(area_max)
-
-    where_clause = " WHERE " + " AND ".join(conditions) if conditions else ""
+    where_clause = build_where_clause(conditions)
 
     query = f"""
     SELECT *
@@ -314,35 +378,41 @@ def get_price_trends(
     municipality_codes: Optional[str] = None,
     districts: Optional[str] = None,
     property_types: Optional[str] = None,
+    structures: Optional[str] = None,
+    floor_plans: Optional[str] = None,
+    year_min: Optional[int] = None,
+    year_max: Optional[int] = None,
+    price_min: Optional[float] = None,
+    price_max: Optional[float] = None,
+    area_min: Optional[float] = None,
+    area_max: Optional[float] = None,
+    building_year_min: Optional[int] = None,
+    building_year_max: Optional[int] = None,
+    unit_price_min: Optional[float] = None,
+    unit_price_max: Optional[float] = None,
     frequency: Annotated[str, Query(pattern="^(Quarterly|Yearly)$")] = "Quarterly",
 ):
     """Get historical price trends."""
-    conditions = []
-    params = []
+    conditions, params = build_filter_conditions(
+        prefecture_code=prefecture_code,
+        municipality_codes=municipality_codes,
+        districts=districts,
+        property_types=property_types,
+        structures=structures,
+        floor_plans=floor_plans,
+        year_min=year_min,
+        year_max=year_max,
+        price_min=price_min,
+        price_max=price_max,
+        area_min=area_min,
+        area_max=area_max,
+        building_year_min=building_year_min,
+        building_year_max=building_year_max,
+        unit_price_min=unit_price_min,
+        unit_price_max=unit_price_max,
+    )
 
-    if prefecture_code:
-        conditions.append("prefecture_code = %s")
-        params.append(prefecture_code)
-
-    if municipality_codes:
-        codes = tuple(municipality_codes.split(","))
-        placeholders = ",".join(["%s"] * len(codes))
-        conditions.append(f"municipality_code IN ({placeholders})")
-        params.extend(codes)
-
-    if districts:
-        district_list = tuple(districts.split(","))
-        placeholders = ",".join(["%s"] * len(district_list))
-        conditions.append(f"district_name IN ({placeholders})")
-        params.extend(district_list)
-
-    if property_types:
-        types = tuple(property_types.split(","))
-        placeholders = ",".join(["%s"] * len(types))
-        conditions.append(f"property_type_raw IN ({placeholders})")
-        params.extend(types)
-
-    where_clause = " WHERE " + " AND ".join(conditions) if conditions else ""
+    where_clause = build_where_clause(conditions)
 
     if frequency == "Quarterly":
         group_by = "transaction_year, transaction_quarter"
@@ -375,29 +445,42 @@ def get_price_trends(
 def get_median_price(
     prefecture_code: Optional[str] = None,
     municipality_codes: Optional[str] = None,
+    districts: Optional[str] = None,
     property_types: Optional[str] = None,
+    structures: Optional[str] = None,
+    floor_plans: Optional[str] = None,
+    year_min: Optional[int] = None,
+    year_max: Optional[int] = None,
+    price_min: Optional[float] = None,
+    price_max: Optional[float] = None,
+    area_min: Optional[float] = None,
+    area_max: Optional[float] = None,
+    building_year_min: Optional[int] = None,
+    building_year_max: Optional[int] = None,
+    unit_price_min: Optional[float] = None,
+    unit_price_max: Optional[float] = None,
 ):
     """Get latest median price for an area."""
-    conditions = []
-    params = []
+    conditions, params = build_filter_conditions(
+        prefecture_code=prefecture_code,
+        municipality_codes=municipality_codes,
+        districts=districts,
+        property_types=property_types,
+        structures=structures,
+        floor_plans=floor_plans,
+        year_min=year_min,
+        year_max=year_max,
+        price_min=price_min,
+        price_max=price_max,
+        area_min=area_min,
+        area_max=area_max,
+        building_year_min=building_year_min,
+        building_year_max=building_year_max,
+        unit_price_min=unit_price_min,
+        unit_price_max=unit_price_max,
+    )
 
-    if prefecture_code:
-        conditions.append("prefecture_code = %s")
-        params.append(prefecture_code)
-
-    if municipality_codes:
-        codes = tuple(municipality_codes.split(","))
-        placeholders = ",".join(["%s"] * len(codes))
-        conditions.append(f"municipality_code IN ({placeholders})")
-        params.extend(codes)
-
-    if property_types:
-        types = tuple(property_types.split(","))
-        placeholders = ",".join(["%s"] * len(types))
-        conditions.append(f"property_type_raw IN ({placeholders})")
-        params.extend(types)
-
-    where_clause = " WHERE " + " AND ".join(conditions) if conditions else ""
+    where_clause = build_where_clause(conditions)
 
     query = f"""
     SELECT
@@ -416,31 +499,46 @@ def get_median_price(
 def get_price_by_district(
     prefecture_code: Optional[str] = None,
     municipality_codes: Optional[str] = None,
+    districts: Optional[str] = None,
     property_types: Optional[str] = None,
+    structures: Optional[str] = None,
+    floor_plans: Optional[str] = None,
+    year_min: Optional[int] = None,
+    year_max: Optional[int] = None,
+    price_min: Optional[float] = None,
+    price_max: Optional[float] = None,
+    area_min: Optional[float] = None,
+    area_max: Optional[float] = None,
+    building_year_min: Optional[int] = None,
+    building_year_max: Optional[int] = None,
+    unit_price_min: Optional[float] = None,
+    unit_price_max: Optional[float] = None,
     limit: Annotated[int, Query(le=500)] = 50,
 ):
     """Get median prices grouped by district."""
     limit = max(1, min(limit, 500))
-    conditions = []
-    params = []
 
-    if prefecture_code:
-        conditions.append("t.prefecture_code = %s")
-        params.append(prefecture_code)
+    conditions, params = build_filter_conditions(
+        prefecture_code=prefecture_code,
+        municipality_codes=municipality_codes,
+        districts=districts,
+        property_types=property_types,
+        structures=structures,
+        floor_plans=floor_plans,
+        year_min=year_min,
+        year_max=year_max,
+        price_min=price_min,
+        price_max=price_max,
+        area_min=area_min,
+        area_max=area_max,
+        building_year_min=building_year_min,
+        building_year_max=building_year_max,
+        unit_price_min=unit_price_min,
+        unit_price_max=unit_price_max,
+        table_alias="t.",
+    )
 
-    if municipality_codes:
-        codes = tuple(municipality_codes.split(","))
-        placeholders = ",".join(["%s"] * len(codes))
-        conditions.append(f"t.municipality_code IN ({placeholders})")
-        params.extend(codes)
-
-    if property_types:
-        types = tuple(property_types.split(","))
-        placeholders = ",".join(["%s"] * len(types))
-        conditions.append(f"t.property_type_raw IN ({placeholders})")
-        params.extend(types)
-
-    where_clause = " WHERE " + " AND ".join(conditions) if conditions else ""
+    where_clause = build_where_clause(conditions)
 
     query = f"""
     SELECT
@@ -540,7 +638,7 @@ def root():
         "docs": "/docs",
         "mcp_tools": "/mcp/tools",
         "endpoints": {
-            "reference_data": ["/prefectures", "/municipalities", "/districts", "/property-types", "/structures", "/floor-plans"],
+            "reference_data": ["/prefectures", "/municipalities", "/districts", "/property-types", "/structures", "/floor-plans", "/year-range", "/building-year-range"],
             "statistics": ["/stats", "/stats/summary"],
             "transactions": ["/transactions", "/price-trends", "/median-price", "/price-by-district"],
             "mcp": ["/mcp/tools", "/mcp/call/{tool_name}"],

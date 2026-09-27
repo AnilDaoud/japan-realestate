@@ -153,15 +153,14 @@ curl -i http://localhost:8000/prefectures
 | Tab | Description |
 |-----|-------------|
 | **Charts** | Time series, histogram, and scatter plots of price trends |
-| **Map** | Price comparison by ward/city with visualizations |
+| **Area Comparison** | Price comparison by ward/city with bar charts, treemaps, and tables |
 | **Districts** | Price trends and YoY changes by district within selected area |
 | **Cohorts** | Analyze prices by building age, property size, or total price |
 | **Valuation** | Estimate property values, check listings, track depreciation |
-| **Raw Data** | Browse and download transaction records |
 
 ## Filters
 
-- **Location**: Prefecture, ward/city, district, nearest station
+- **Location**: Prefecture, ward/city, district
 - **Property**: Type, structure (RC, wood, etc.), floor plan (LDK layouts)
 - **Size**: Area range (m²)
 - **Price**: Total price, price per m²
@@ -300,16 +299,25 @@ All endpoints have full documentation at http://localhost:8000/docs
 
 ### Query Parameters
 
-All endpoints support flexible filtering:
+The four analysis endpoints (`/transactions`, `/price-trends`, `/median-price`, `/price-by-district`) share one filter contract:
+
 - `prefecture_code` — Prefecture code ("13" for Tokyo, "26" for Kyoto, etc.)
 - `municipality_codes` — Comma-separated codes
 - `districts` — Comma-separated district names
 - `property_types` — Types (Apartment, House, Land, etc.)
-- `year_min`, `year_max` — Year range
-- `price_min`, `price_max` — Price range in JPY
+- `structures` — Building structures (RC, SRC, Wood, etc.)
+- `floor_plans` — Floor plans (1LDK, 2DK, etc.)
+- `year_min`, `year_max` — Transaction year range
+- `price_min`, `price_max` — Total price range in JPY
 - `area_min`, `area_max` — Area range in m²
-- `limit` — Results per page (default 100-1000)
-- `offset` — Pagination offset
+- `building_year_min`, `building_year_max` — Building year range
+- `unit_price_min`, `unit_price_max` — Unit price range in JPY per m²
+
+Endpoint-specific parameters:
+
+- `limit`, `offset` — Pagination, `/transactions` only (`limit` default 1000, max 10000)
+- `frequency` — `Quarterly` or `Yearly`, `/price-trends` only
+- `limit` — `/price-by-district` only (default 50, max 500)
 
 ### Response Format
 
@@ -324,16 +332,15 @@ All endpoints return JSON. Transaction queries return paginated results:
     {
       "id": 12345,
       "prefecture_code": "13",
-      "prefecture_name": "Tokyo",
       "municipality_code": "13101",
-      "municipality_name": "Chiyoda Ward",
-      "district": "Marunouchi",
-      "property_type": "Apartment",
-      "transaction_price": 65000000,
-      "area": 72.5,
-      "year_built": 2015,
-      "structure_type": "RC",
+      "district_name": "Marunouchi",
+      "property_type_raw": "Apartment",
+      "trade_price": 65000000,
+      "area_m2": 72.5,
+      "building_year": 2015,
+      "structure": "RC",
       "floor_plan": "2LDK",
+      "unit_price": 896551,
       "transaction_year": 2024,
       "transaction_quarter": 2,
       "...": "other fields"
@@ -370,12 +377,14 @@ curl "http://localhost:8000/transactions?municipality_codes=13104&price_min=6000
 
 ### Pagination
 
-Transaction and listing endpoints support pagination:
+`/transactions` supports full `limit`/`offset` pagination:
 
 - `limit` — Items per page (default 1000, max 10000)
 - `offset` — Items to skip (default 0)
 
 Example: `/transactions?limit=500&offset=500` returns items 501-1000.
+
+Other endpoints only accept a `limit` (no `offset`): `/price-by-district` caps results at `limit` (default 50, max 500), while `/price-trends` and `/median-price` return their full result set.
 
 ### Performance Notes
 
@@ -388,7 +397,7 @@ Example: `/transactions?limit=500&offset=500` returns items 501-1000.
 
 ## MCP (Model Context Protocol) Integration
 
-The API includes MCP tool endpoints for AI agents to discover and call tools directly.
+The API includes HTTP MCP tool-discovery and tool-call endpoints for AI agents. These expose the same tools over HTTP; they do not start a standalone MCP stdio/HTTP transport server.
 
 ### Using MCP Endpoints
 

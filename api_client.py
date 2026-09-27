@@ -79,9 +79,16 @@ class APIClient:
         area_max: Optional[float] = None,
         limit: int = 1000,
         offset: int = 0,
+        *,
+        structures: Optional[str] = None,
+        floor_plans: Optional[str] = None,
+        building_year_min: Optional[int] = None,
+        building_year_max: Optional[int] = None,
+        unit_price_min: Optional[float] = None,
+        unit_price_max: Optional[float] = None,
     ) -> Dict:
         """Query transactions with filters."""
-        params = {}
+        params: Dict[str, Any] = {}
         if prefecture_code:
             params["prefecture_code"] = prefecture_code
         if municipality_codes:
@@ -90,18 +97,30 @@ class APIClient:
             params["districts"] = districts
         if property_types:
             params["property_types"] = property_types
-        if year_min:
+        if structures:
+            params["structures"] = structures
+        if floor_plans:
+            params["floor_plans"] = floor_plans
+        if year_min is not None:
             params["year_min"] = year_min
-        if year_max:
+        if year_max is not None:
             params["year_max"] = year_max
-        if price_min:
+        if price_min is not None:
             params["price_min"] = price_min
-        if price_max:
+        if price_max is not None:
             params["price_max"] = price_max
-        if area_min:
+        if area_min is not None:
             params["area_min"] = area_min
-        if area_max:
+        if area_max is not None:
             params["area_max"] = area_max
+        if building_year_min is not None:
+            params["building_year_min"] = building_year_min
+        if building_year_max is not None:
+            params["building_year_max"] = building_year_max
+        if unit_price_min is not None:
+            params["unit_price_min"] = unit_price_min
+        if unit_price_max is not None:
+            params["unit_price_max"] = unit_price_max
         params["limit"] = limit
         params["offset"] = offset
 
@@ -115,9 +134,22 @@ class APIClient:
         districts: Optional[str] = None,
         property_types: Optional[str] = None,
         frequency: str = "Quarterly",
+        *,
+        structures: Optional[str] = None,
+        floor_plans: Optional[str] = None,
+        year_min: Optional[int] = None,
+        year_max: Optional[int] = None,
+        price_min: Optional[float] = None,
+        price_max: Optional[float] = None,
+        area_min: Optional[float] = None,
+        area_max: Optional[float] = None,
+        building_year_min: Optional[int] = None,
+        building_year_max: Optional[int] = None,
+        unit_price_min: Optional[float] = None,
+        unit_price_max: Optional[float] = None,
     ) -> List[Dict]:
         """Get historical price trends."""
-        params = {"frequency": frequency}
+        params: Dict[str, Any] = {"frequency": frequency}
         if prefecture_code:
             params["prefecture_code"] = prefecture_code
         if municipality_codes:
@@ -126,6 +158,30 @@ class APIClient:
             params["districts"] = districts
         if property_types:
             params["property_types"] = property_types
+        if structures:
+            params["structures"] = structures
+        if floor_plans:
+            params["floor_plans"] = floor_plans
+        if year_min is not None:
+            params["year_min"] = year_min
+        if year_max is not None:
+            params["year_max"] = year_max
+        if price_min is not None:
+            params["price_min"] = price_min
+        if price_max is not None:
+            params["price_max"] = price_max
+        if area_min is not None:
+            params["area_min"] = area_min
+        if area_max is not None:
+            params["area_max"] = area_max
+        if building_year_min is not None:
+            params["building_year_min"] = building_year_min
+        if building_year_max is not None:
+            params["building_year_max"] = building_year_max
+        if unit_price_min is not None:
+            params["unit_price_min"] = unit_price_min
+        if unit_price_max is not None:
+            params["unit_price_max"] = unit_price_max
 
         return self.get("/price-trends", params=params)
 
@@ -134,15 +190,55 @@ class APIClient:
         prefecture_code: Optional[str] = None,
         municipality_codes: Optional[str] = None,
         property_types: Optional[str] = None,
+        *,
+        districts: Optional[str] = None,
+        structures: Optional[str] = None,
+        floor_plans: Optional[str] = None,
+        year_min: Optional[int] = None,
+        year_max: Optional[int] = None,
+        price_min: Optional[float] = None,
+        price_max: Optional[float] = None,
+        area_min: Optional[float] = None,
+        area_max: Optional[float] = None,
+        building_year_min: Optional[int] = None,
+        building_year_max: Optional[int] = None,
+        unit_price_min: Optional[float] = None,
+        unit_price_max: Optional[float] = None,
     ) -> Dict:
         """Get latest median price."""
-        params = {}
+        params: Dict[str, Any] = {}
         if prefecture_code:
             params["prefecture_code"] = prefecture_code
         if municipality_codes:
             params["municipality_codes"] = municipality_codes
+        if districts:
+            params["districts"] = districts
         if property_types:
             params["property_types"] = property_types
+        if structures:
+            params["structures"] = structures
+        if floor_plans:
+            params["floor_plans"] = floor_plans
+        if year_min is not None:
+            params["year_min"] = year_min
+        if year_max is not None:
+            params["year_max"] = year_max
+        if price_min is not None:
+            params["price_min"] = price_min
+        if price_max is not None:
+            params["price_max"] = price_max
+        if area_min is not None:
+            params["area_min"] = area_min
+        if area_max is not None:
+            params["area_max"] = area_max
+        if building_year_min is not None:
+            params["building_year_min"] = building_year_min
+        if building_year_max is not None:
+            params["building_year_max"] = building_year_max
+        if unit_price_min is not None:
+            params["unit_price_min"] = unit_price_min
+        if unit_price_max is not None:
+            params["unit_price_max"] = unit_price_max
 
         return self.get("/median-price", params=params)
 
@@ -152,15 +248,55 @@ class APIClient:
         municipality_codes: Optional[str] = None,
         property_types: Optional[str] = None,
         limit: int = 50,
+        *,
+        districts: Optional[str] = None,
+        structures: Optional[str] = None,
+        floor_plans: Optional[str] = None,
+        year_min: Optional[int] = None,
+        year_max: Optional[int] = None,
+        price_min: Optional[float] = None,
+        price_max: Optional[float] = None,
+        area_min: Optional[float] = None,
+        area_max: Optional[float] = None,
+        building_year_min: Optional[int] = None,
+        building_year_max: Optional[int] = None,
+        unit_price_min: Optional[float] = None,
+        unit_price_max: Optional[float] = None,
     ) -> List[Dict]:
         """Get median prices by district."""
-        params = {"limit": limit}
+        params: Dict[str, Any] = {"limit": limit}
         if prefecture_code:
             params["prefecture_code"] = prefecture_code
         if municipality_codes:
             params["municipality_codes"] = municipality_codes
+        if districts:
+            params["districts"] = districts
         if property_types:
             params["property_types"] = property_types
+        if structures:
+            params["structures"] = structures
+        if floor_plans:
+            params["floor_plans"] = floor_plans
+        if year_min is not None:
+            params["year_min"] = year_min
+        if year_max is not None:
+            params["year_max"] = year_max
+        if price_min is not None:
+            params["price_min"] = price_min
+        if price_max is not None:
+            params["price_max"] = price_max
+        if area_min is not None:
+            params["area_min"] = area_min
+        if area_max is not None:
+            params["area_max"] = area_max
+        if building_year_min is not None:
+            params["building_year_min"] = building_year_min
+        if building_year_max is not None:
+            params["building_year_max"] = building_year_max
+        if unit_price_min is not None:
+            params["unit_price_min"] = unit_price_min
+        if unit_price_max is not None:
+            params["unit_price_max"] = unit_price_max
 
         return self.get("/price-by-district", params=params)
 
