@@ -40,6 +40,10 @@ services:
       - MATOMO_URL=${MATOMO_URL}
       - COFFEE_URL=${COFFEE_URL}
     restart: unless-stopped
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
     healthcheck:
       test: ["CMD", "curl", "--fail", "http://localhost:9001/_stcore/health"]
       interval: 30s

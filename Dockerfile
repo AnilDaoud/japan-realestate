@@ -16,6 +16,7 @@ COPY api.py .
 COPY api_security.py .
 COPY api_client.py .
 COPY mcp_server.py .
+COPY snapshot_utils.py .
 COPY dbutils/ ./dbutils/
 
 EXPOSE 8000 9001
