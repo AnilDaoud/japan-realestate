@@ -18,6 +18,21 @@ import time
 # Import rate limiting middleware
 from api_security import add_rate_limit_middleware, logger
 
+# Import shared Area Snapshot SQL helpers (also used by the Streamlit tab)
+from snapshot_utils import (
+    MAX_SNAPSHOT_MUNICIPALITIES,
+    SNAPSHOT_DISTRICT_LIMIT_DEFAULT,
+    SNAPSHOT_DISTRICT_LIMIT_MAX,
+    SNAPSHOT_LOW_SAMPLE_COUNT,
+    CONDO_PROPERTY_TYPE,
+    parse_municipality_codes,
+    build_snapshot_overall_query,
+    build_snapshot_segment_query,
+    build_snapshot_size_band_query,
+    build_snapshot_district_query,
+    empty_snapshot_municipality,
+)
+
 # =============================================================================
 # CONFIG
 # =============================================================================
@@ -650,6 +665,110 @@ def get_price_by_district(
     results = run_query(query, tuple(params))
     return results
 
+@app.get("/area-snapshot")
+def get_area_snapshot(
+    municipality_codes: Optional[str] = None,
+    prefecture_code: Optional[str] = None,
+    districts: Optional[str] = None,
+    property_types: Optional[str] = None,
+    structures: Optional[str] = None,
+    floor_plans: Optional[str] = None,
+    year_min: Optional[int] = None,
+    year_max: Optional[int] = None,
+    price_min: Optional[float] = None,
+    price_max: Optional[float] = None,
+    area_min: Optional[float] = None,
+    area_max: Optional[float] = None,
+    building_year_min: Optional[int] = None,
+    building_year_max: Optional[int] = None,
+    unit_price_min: Optional[float] = None,
+    unit_price_max: Optional[float] = None,
+    district_limit: Annotated[int, Query(le=SNAPSHOT_DISTRICT_LIMIT_MAX)] = SNAPSHOT_DISTRICT_LIMIT_DEFAULT,
+):
+    """Get a one-stop Area Snapshot for up to 3 municipalities.
+
+    Returns p25/p50/p75/p90 distributions for total price and unit price
+    (JPY, JPY/m2) per municipality, broken down by property segment and condo
+    size band, plus top districts ranked by median unit price. ``municipality_codes``
+    is required: comma-separated 1-5 digit codes, 1-3 values (e.g. ``47201``
+    for Naha City). Groups under ``low_sample_threshold`` transactions should
+    be treated as low-sample by clients.
+    """
+    try:
+        codes = parse_municipality_codes(municipality_codes)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    district_limit = max(1, min(district_limit, SNAPSHOT_DISTRICT_LIMIT_MAX))
+
+    # Reuse the shared filter contract. municipality_codes is consumed by the
+    # snapshot builders themselves, so it is not passed here.
+    conditions, params = build_filter_conditions(
+        prefecture_code=prefecture_code,
+        districts=districts,
+        property_types=property_types,
+        structures=structures,
+        floor_plans=floor_plans,
+        year_min=year_min,
+        year_max=year_max,
+        price_min=price_min,
+        price_max=price_max,
+        area_min=area_min,
+        area_max=area_max,
+        building_year_min=building_year_min,
+        building_year_max=building_year_max,
+        unit_price_min=unit_price_min,
+        unit_price_max=unit_price_max,
+        table_alias="t.",
+    )
+    extra_conditions = conditions or None
+    extra_params = params or None
+
+    overall_query, overall_params = build_snapshot_overall_query(
+        codes, extra_conditions, extra_params)
+    overall = run_query(overall_query, tuple(overall_params))
+
+    segment_query, segment_params = build_snapshot_segment_query(
+        codes, extra_conditions, extra_params)
+    segments = run_query(segment_query, tuple(segment_params))
+
+    band_query, band_params = build_snapshot_size_band_query(
+        codes, extra_conditions, extra_params)
+    size_bands = run_query(band_query, tuple(band_params))
+
+    district_query, district_params = build_snapshot_district_query(
+        codes, district_limit, extra_conditions, extra_params)
+    top_districts = run_query(district_query, tuple(district_params))
+
+    # Nest segments / size bands under their municipality so clients get one
+    # entry per compared area. Municipalities with no matching transactions
+    # still appear (empty breakdowns) so callers can show "no data" per area.
+    # The empty entries carry the SAME keys as populated rows (percentiles are
+    # None, lists empty), so the response schema is stable either way.
+    by_municipality = {row["municipality_code"]: {**row, "segments": [], "size_bands": []}
+                       for row in overall}
+    for code in codes:
+        by_municipality.setdefault(code, empty_snapshot_municipality(code))
+    for row in segments:
+        entry = by_municipality.get(row["municipality_code"])
+        if entry is not None:
+            entry["segments"].append(row)
+    for row in size_bands:
+        entry = by_municipality.get(row["municipality_code"])
+        if entry is not None:
+            entry["size_bands"].append(row)
+
+    return {
+        "parameters": {
+            "municipality_codes": codes,
+            "district_limit": district_limit,
+            "low_sample_threshold": SNAPSHOT_LOW_SAMPLE_COUNT,
+        },
+        "condo_property_type": CONDO_PROPERTY_TYPE,
+        "municipalities": [by_municipality[code] for code in codes],
+        "top_districts": top_districts,
+    }
+
 # =============================================================================
 # HEALTH CHECK
 # =============================================================================
@@ -706,6 +825,8 @@ def call_mcp_tool(tool_name: str, params: dict = None):
             return get_price_by_district(**params)
         elif tool_name == "get_median_price":
             return get_median_price(**params)
+        elif tool_name == "get_area_snapshot":
+            return get_area_snapshot(**params)
         elif tool_name == "list_prefectures":
             return get_prefectures()
         elif tool_name == "list_municipalities":
@@ -730,7 +851,7 @@ def root():
         "endpoints": {
             "reference_data": ["/prefectures", "/municipalities", "/districts", "/property-types", "/structures", "/floor-plans", "/year-range", "/building-year-range"],
             "statistics": ["/stats", "/stats/summary"],
-            "transactions": ["/transactions", "/price-trends", "/median-price", "/price-by-district"],
+            "transactions": ["/transactions", "/price-trends", "/median-price", "/price-by-district", "/area-snapshot"],
             "mcp": ["/mcp/tools", "/mcp/call/{tool_name}"],
             "health": ["/health"]
         }

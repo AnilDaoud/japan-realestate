@@ -300,6 +300,72 @@ class APIClient:
 
         return self.get("/price-by-district", params=params)
 
+    def get_area_snapshot(
+        self,
+        municipality_codes: str,
+        district_limit: int = 10,
+        *,
+        prefecture_code: Optional[str] = None,
+        districts: Optional[str] = None,
+        property_types: Optional[str] = None,
+        structures: Optional[str] = None,
+        floor_plans: Optional[str] = None,
+        year_min: Optional[int] = None,
+        year_max: Optional[int] = None,
+        price_min: Optional[float] = None,
+        price_max: Optional[float] = None,
+        area_min: Optional[float] = None,
+        area_max: Optional[float] = None,
+        building_year_min: Optional[int] = None,
+        building_year_max: Optional[int] = None,
+        unit_price_min: Optional[float] = None,
+        unit_price_max: Optional[float] = None,
+    ) -> Dict:
+        """Get a one-stop Area Snapshot for up to 3 municipalities.
+
+        Returns p25/p50/p75/p90 distributions for total price and unit price
+        per municipality, broken down by property segment and condo size band,
+        plus top districts ranked by median unit price. ``municipality_codes``
+        is required: comma-separated 1-5 digit codes, 1-3 values
+        (e.g. "47201" for Naha City).
+        """
+        params: Dict[str, Any] = {
+            "municipality_codes": municipality_codes,
+            "district_limit": district_limit,
+        }
+        if prefecture_code:
+            params["prefecture_code"] = prefecture_code
+        if districts:
+            params["districts"] = districts
+        if property_types:
+            params["property_types"] = property_types
+        if structures:
+            params["structures"] = structures
+        if floor_plans:
+            params["floor_plans"] = floor_plans
+        if year_min is not None:
+            params["year_min"] = year_min
+        if year_max is not None:
+            params["year_max"] = year_max
+        if price_min is not None:
+            params["price_min"] = price_min
+        if price_max is not None:
+            params["price_max"] = price_max
+        if area_min is not None:
+            params["area_min"] = area_min
+        if area_max is not None:
+            params["area_max"] = area_max
+        if building_year_min is not None:
+            params["building_year_min"] = building_year_min
+        if building_year_max is not None:
+            params["building_year_max"] = building_year_max
+        if unit_price_min is not None:
+            params["unit_price_min"] = unit_price_min
+        if unit_price_max is not None:
+            params["unit_price_max"] = unit_price_max
+
+        return self.get("/area-snapshot", params=params)
+
     def health_check(self) -> Dict:
         """Check API health."""
         return self.get("/health")

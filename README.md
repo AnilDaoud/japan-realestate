@@ -12,6 +12,7 @@ A Streamlit dashboard + FastAPI backend for exploring Japanese real estate trans
 - **5.8M+ transactions** from all 47 prefectures dating back to 2005
 - **Interactive charts**: Time series, histograms, scatter plots with regression
 - **Price comparisons**: By ward/city with bar charts and treemaps
+- **Area Snapshot**: One-stop percentile comparison (p25/p50/p75/p90) of up to 3 municipalities — segments, condo size bands, and top districts
 - **Age cohort analysis**: Track how prices evolve for buildings of different ages
 - **Property valuation**: Estimate values, check listings, track depreciation
 - **Multi-currency support**: JPY, USD, EUR, GBP with historical FX rates
@@ -162,6 +163,7 @@ curl -i http://localhost:8000/prefectures
 |-----|-------------|
 | **Charts** | Time series, histogram, and scatter plots of price trends |
 | **Area Comparison** | Price comparison by ward/city with bar charts, treemaps, and tables |
+| **Area Snapshot** | Side-by-side percentile snapshot (p25/p50/p75/p90) of 1-3 municipalities with segment and condo size-band breakdowns plus top districts |
 | **District** | Price trends and YoY changes by district within selected area |
 | **Cohorts** | Analyze prices by building age, property size, or total price |
 | **Valuation** | Estimate property values, check listings, track depreciation |
@@ -304,6 +306,7 @@ grep "japan-realestate/mcp/call" /var/log/nginx/access.log | grep -o "call/[a-z_
 - **`GET /price-trends?...`** — Historical trends (volume, prices)
 - **`GET /median-price?...`** — Latest statistics
 - **`GET /price-by-district?...`** — Prices by neighborhood
+- **`GET /area-snapshot?municipality_codes=...`** — One-stop percentile snapshot for 1-3 municipalities
 - **`GET /stats`** — Records by year/quarter
 - **`GET /stats/summary`** — Overall statistics
 

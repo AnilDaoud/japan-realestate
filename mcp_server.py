@@ -339,6 +339,85 @@ TOOLS = [
         }
     },
     {
+        "name": "get_area_snapshot",
+        "description": "Get a one-stop Area Snapshot for up to 3 municipalities: p25/p50/p75/p90 distributions for total price and unit price (JPY, JPY/m2) per municipality, broken down by property segment and condo size band, plus top districts ranked by median unit price. Every requested municipality always appears in the result with the same keys; groups under low_sample_threshold transactions should be treated as low-sample.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "municipality_codes": {
+                    "type": "string",
+                    "description": "Comma-separated municipality codes to compare — REQUIRED, 1-3 codes (e.g., '47201' for Naha City, '13101,13102')"
+                },
+                "prefecture_code": {
+                    "type": "string",
+                    "description": "Prefecture code"
+                },
+                "districts": {
+                    "type": "string",
+                    "description": "Comma-separated district names"
+                },
+                "property_types": {
+                    "type": "string",
+                    "description": "Comma-separated property types"
+                },
+                "structures": {
+                    "type": "string",
+                    "description": "Comma-separated building structures"
+                },
+                "floor_plans": {
+                    "type": "string",
+                    "description": "Comma-separated floor plans"
+                },
+                "year_min": {
+                    "type": "integer",
+                    "description": "Minimum transaction year"
+                },
+                "year_max": {
+                    "type": "integer",
+                    "description": "Maximum transaction year"
+                },
+                "price_min": {
+                    "type": "number",
+                    "description": "Minimum price in JPY"
+                },
+                "price_max": {
+                    "type": "number",
+                    "description": "Maximum price in JPY"
+                },
+                "area_min": {
+                    "type": "number",
+                    "description": "Minimum area in m²"
+                },
+                "area_max": {
+                    "type": "number",
+                    "description": "Maximum area in m²"
+                },
+                "building_year_min": {
+                    "type": "integer",
+                    "description": "Minimum building year"
+                },
+                "building_year_max": {
+                    "type": "integer",
+                    "description": "Maximum building year"
+                },
+                "unit_price_min": {
+                    "type": "number",
+                    "description": "Minimum unit price in JPY per m²"
+                },
+                "unit_price_max": {
+                    "type": "number",
+                    "description": "Maximum unit price in JPY per m²"
+                },
+                "district_limit": {
+                    "type": "integer",
+                    "description": "Number of top districts to return (default 10, max 50)",
+                    "default": 10
+                }
+            },
+            "required": ["municipality_codes"]
+        }
+    },
+    {
         "name": "list_prefectures",
         "description": "List all Japanese prefectures with their codes.",
         "inputSchema": {
@@ -616,6 +695,66 @@ async def get_median_price(
             params["unit_price_max"] = unit_price_max
 
         response = await client.get(f"{API_BASE_URL}/median-price", params=params)
+        return response.json()
+
+async def get_area_snapshot(
+    municipality_codes: str,
+    district_limit: int = 10,
+    *,
+    prefecture_code: Optional[str] = None,
+    districts: Optional[str] = None,
+    property_types: Optional[str] = None,
+    structures: Optional[str] = None,
+    floor_plans: Optional[str] = None,
+    year_min: Optional[int] = None,
+    year_max: Optional[int] = None,
+    price_min: Optional[float] = None,
+    price_max: Optional[float] = None,
+    area_min: Optional[float] = None,
+    area_max: Optional[float] = None,
+    building_year_min: Optional[int] = None,
+    building_year_max: Optional[int] = None,
+    unit_price_min: Optional[float] = None,
+    unit_price_max: Optional[float] = None,
+) -> Dict[str, Any]:
+    """Get a one-stop Area Snapshot for up to 3 municipalities."""
+    async with httpx.AsyncClient() as client:
+        params: Dict[str, Any] = {
+            "municipality_codes": municipality_codes,
+            "district_limit": district_limit,
+        }
+        if prefecture_code:
+            params["prefecture_code"] = prefecture_code
+        if districts:
+            params["districts"] = districts
+        if property_types:
+            params["property_types"] = property_types
+        if structures:
+            params["structures"] = structures
+        if floor_plans:
+            params["floor_plans"] = floor_plans
+        if year_min is not None:
+            params["year_min"] = year_min
+        if year_max is not None:
+            params["year_max"] = year_max
+        if price_min is not None:
+            params["price_min"] = price_min
+        if price_max is not None:
+            params["price_max"] = price_max
+        if area_min is not None:
+            params["area_min"] = area_min
+        if area_max is not None:
+            params["area_max"] = area_max
+        if building_year_min is not None:
+            params["building_year_min"] = building_year_min
+        if building_year_max is not None:
+            params["building_year_max"] = building_year_max
+        if unit_price_min is not None:
+            params["unit_price_min"] = unit_price_min
+        if unit_price_max is not None:
+            params["unit_price_max"] = unit_price_max
+
+        response = await client.get(f"{API_BASE_URL}/area-snapshot", params=params)
         return response.json()
 
 async def list_prefectures() -> List[Dict]:

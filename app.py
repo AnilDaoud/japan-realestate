@@ -20,6 +20,20 @@ from datetime import datetime
 from urllib.parse import urlencode
 import io
 
+from snapshot_utils import (
+    MAX_SNAPSHOT_MUNICIPALITIES,
+    SNAPSHOT_DISTRICT_LIMIT_DEFAULT,
+    SNAPSHOT_DISTRICT_LIMIT_MAX,
+    SNAPSHOT_LOW_SAMPLE_COUNT,
+    CONDO_PROPERTY_TYPE,
+    parse_municipality_codes,
+    build_snapshot_overall_query,
+    build_snapshot_segment_query,
+    build_snapshot_size_band_query,
+    build_snapshot_district_query,
+    empty_snapshot_municipality,
+)
+
 logger = logging.getLogger(__name__)
 
 # =============================================================================
@@ -262,8 +276,8 @@ st.set_page_config(
 )
 
 # Tab state management via query params
-TAB_NAMES = ["charts", "areas", "cohorts", "micro", "valuation", "insights", "data", "quality"]
-TAB_LABELS = ["📈 Charts", "🏙️ Area Comparison", "📊 Cohorts", "📍 District", "💰 Valuation", "🔭 Insights", "🔌 API & MCP", "📊 Data Audit"]
+TAB_NAMES = ["charts", "areas", "snapshot", "cohorts", "micro", "valuation", "insights", "data", "quality"]
+TAB_LABELS = ["📈 Charts", "🏙️ Area Comparison", "🏘️ Area Snapshot", "📊 Cohorts", "📍 District", "💰 Valuation", "🔭 Insights", "🔌 API & MCP", "📊 Data Audit"]
 
 INSIGHT_CHOICES = {
     "🔧 Renovation Premium Crossover":        "renovation",
@@ -560,6 +574,54 @@ def get_area_comparison_data(filters, latest_only=False):
     query += " ORDER BY median_price_m2 DESC"
 
     return run_query(query, params)
+
+
+@st.cache_data(ttl=3600)
+def get_area_snapshot_data(codes, extra_conditions, extra_params, district_limit):
+    """Run the Area Snapshot queries for up to 3 municipalities.
+
+    Shares the SQL builders in snapshot_utils.py with the FastAPI backend
+    (GET /area-snapshot) so the tab and the API compute identical
+    distributions. Returns the same nested shape as the endpoint: one entry
+    per requested municipality with segments/size_bands nested, plus a flat
+    top_districts list. Municipalities without matching transactions appear
+    via empty_snapshot_municipality so the schema is stable either way.
+
+    ``extra_conditions``/``extra_params`` carry the caller's sidebar filter
+    fragments (placeholders matched to params in order), e.g. those built
+    from the shared ``filters`` dict.
+    """
+    codes = list(codes)
+    extra_conditions = list(extra_conditions) or None
+    extra_params = list(extra_params) or None
+
+    overall = run_query(*build_snapshot_overall_query(codes, extra_conditions, extra_params))
+    segments = run_query(*build_snapshot_segment_query(codes, extra_conditions, extra_params))
+    size_bands = run_query(*build_snapshot_size_band_query(codes, extra_conditions, extra_params))
+    top_districts = run_query(*build_snapshot_district_query(codes, district_limit, extra_conditions, extra_params))
+
+    by_municipality = {row["municipality_code"]: {**row, "segments": [], "size_bands": []}
+                       for row in overall.to_dict("records")}
+    for code in codes:
+        by_municipality.setdefault(code, empty_snapshot_municipality(code))
+    for row in segments.to_dict("records"):
+        entry = by_municipality.get(row["municipality_code"])
+        if entry is not None:
+            entry["segments"].append(row)
+    for row in size_bands.to_dict("records"):
+        entry = by_municipality.get(row["municipality_code"])
+        if entry is not None:
+            entry["size_bands"].append(row)
+
+    return {
+        "parameters": {
+            "municipality_codes": codes,
+            "district_limit": district_limit,
+            "low_sample_threshold": SNAPSHOT_LOW_SAMPLE_COUNT,
+        },
+        "municipalities": [by_municipality[code] for code in codes],
+        "top_districts": top_districts.to_dict("records"),
+    }
 
 
 @st.cache_data(ttl=86400)
@@ -2287,6 +2349,278 @@ elif selected_tab == "🏙️ Area Comparison":
     else:
         st.warning("No data available for selected filters")
 
+# ============= AREA SNAPSHOT TAB =============
+elif selected_tab == "🏘️ Area Snapshot":
+    st.subheader("Area Snapshot")
+    st.caption(
+        "One-stop percentile comparison (p25/p50/p75/p90) for up to "
+        f"{MAX_SNAPSHOT_MUNICIPALITIES} municipalities — overall, by property "
+        "segment, and by condo size band, plus top districts by median unit "
+        "price. Sidebar filters are applied before the snapshot. Same "
+        "computation as the public API endpoint `GET /area-snapshot`."
+    )
+
+    if not has_municipality_data:
+        st.info("This prefecture has no ward/city data. Pick a prefecture with "
+                "municipalities to use the Area Snapshot.")
+    else:
+        municipality_names = list(municipality_options.keys())
+
+        # Default to whatever is already selected in the sidebar (up to the cap);
+        # once the widget exists its own session-state selection persists.
+        if "snapshot_municipalities" in st.session_state:
+            current_selection = st.session_state["snapshot_municipalities"] or []
+        else:
+            current_selection = list(selected_municipalities or [])
+        snapshot_defaults = [m for m in municipality_names
+                             if m in current_selection][:MAX_SNAPSHOT_MUNICIPALITIES]
+
+        snapshot_selection = st.multiselect(
+            "Municipalities to compare",
+            options=municipality_names,
+            default=snapshot_defaults,
+            max_selections=MAX_SNAPSHOT_MUNICIPALITIES,
+            help=f"Pick 1-{MAX_SNAPSHOT_MUNICIPALITIES} wards/cities for a side-by-side snapshot.",
+            key="snapshot_municipalities",
+        )
+
+        snapshot_codes = None
+        snapshot_district_limit = st.slider(
+            "Top districts to show",
+            min_value=1,
+            max_value=SNAPSHOT_DISTRICT_LIMIT_MAX,
+            value=SNAPSHOT_DISTRICT_LIMIT_DEFAULT,
+            key="snapshot_district_limit",
+        )
+
+        if not snapshot_selection:
+            st.info("👈 Select 1-3 municipalities above to build the snapshot.")
+        else:
+            snapshot_codes = [municipality_options[m] for m in snapshot_selection]
+            try:
+                snapshot_codes = parse_municipality_codes(",".join(snapshot_codes))
+            except ValueError as e:
+                st.error(str(e))
+                snapshot_codes = None
+
+        if snapshot_codes:
+            # Mirror the sidebar filter conditions the same way build_query()
+            # does, so the snapshot respects the current selection.
+            snap_conditions = []
+            snap_params = []
+
+            if filters.get('districts'):
+                snap_conditions.append("t.district_name = ANY(%s)")
+                snap_params.append(filters['districts'])
+
+            # Station filtering is deliberately NOT applied here: the API's
+            # /area-snapshot filter contract (api.py build_filter_conditions)
+            # has no station parameter, and the DB carries no usable station
+            # data (stations table is empty and nearest_station_code is never
+            # populated by ingestion). Keep the tab identical to the endpoint.
+
+            if filters.get('property_types'):
+                snap_conditions.append("t.property_type_raw = ANY(%s)")
+                snap_params.append(filters['property_types'])
+
+            if filters.get('structures'):
+                snap_conditions.append("t.structure = ANY(%s)")
+                snap_params.append(filters['structures'])
+
+            if filters.get('floor_plans'):
+                snap_conditions.append("t.floor_plan = ANY(%s)")
+                snap_params.append(filters['floor_plans'])
+
+            if filters.get('year_range'):
+                snap_conditions.append("t.transaction_year BETWEEN %s AND %s")
+                snap_params.extend(filters['year_range'])
+
+            if filters.get('building_year_range'):
+                snap_conditions.append("t.building_year BETWEEN %s AND %s")
+                snap_params.extend(filters['building_year_range'])
+
+            if filters.get('price_range'):
+                snap_conditions.append("t.trade_price BETWEEN %s AND %s")
+                snap_params.extend([filters['price_range'][0] * 1000000, filters['price_range'][1] * 1000000])
+
+            if filters.get('price_m2_range'):
+                snap_conditions.append("t.unit_price BETWEEN %s AND %s")
+                snap_params.extend([filters['price_m2_range'][0] * 10000, filters['price_m2_range'][1] * 10000])
+
+            if filters.get('area_range'):
+                snap_conditions.append("t.area_m2 BETWEEN %s AND %s")
+                snap_params.extend(filters['area_range'])
+
+            # Data quality filter (same inlining as build_query)
+            quality_filter = filters.get('quality_filter', 'exclude_critical')
+            if quality_filter == 'exclude_critical':
+                snap_conditions.append("""
+                    t.area_m2 NOT IN (9999, 8888)
+                    AND t.area_m2 > 0
+                    AND t.trade_price >= 1000
+                """)
+            elif quality_filter == 'only_suspicious':
+                snap_conditions.append("""
+                    (t.area_m2 IN (9999, 8888) OR t.area_m2 <= 0 OR t.trade_price < 1000)
+                """)
+
+            with st.spinner("Loading area snapshot..."):
+                snapshot = get_area_snapshot_data(
+                    snapshot_codes,
+                    snap_conditions,
+                    snap_params,
+                    snapshot_district_limit,
+                )
+
+            low_sample_threshold = snapshot["parameters"]["low_sample_threshold"]
+            unit_label = get_unit_label()
+
+            # One column per compared municipality
+            snap_cols = st.columns(len(snapshot["municipalities"]))
+            summary_rows = []
+
+            for col, entry in zip(snap_cols, snapshot["municipalities"]):
+                name = entry.get("municipality_name") or entry["municipality_code"]
+                with col:
+                    st.markdown(f"##### {name}")
+                    count = entry["transaction_count"] or 0
+                    if count == 0:
+                        st.info("No transactions match the current filters for this area.")
+                        continue
+                    if count < low_sample_threshold:
+                        st.warning(f"⚠️ Low sample: {count} transactions (< {low_sample_threshold}). Treat with caution.")
+
+                    st.metric(
+                        "Median unit price",
+                        format_price(entry["unit_price_p50"]),
+                    )
+                    st.metric(
+                        "Median total price",
+                        format_price(entry["total_price_p50"], is_unit_price=False),
+                    )
+                    span = ""
+                    if entry.get("earliest_year") and entry.get("latest_year"):
+                        span = f"{int(entry['earliest_year'])}–{int(entry['latest_year'])}"
+                    st.caption(f"{count:,} transactions • {span} • avg area {entry.get('avg_area_m2') or 'N/A'} m²")
+
+                    # Percentile table
+                    pct_df = pd.DataFrame([
+                        {
+                            "Metric": f"Total price ({currency})",
+                            "p25": format_price(entry["total_price_p25"], is_unit_price=False),
+                            "p50": format_price(entry["total_price_p50"], is_unit_price=False),
+                            "p75": format_price(entry["total_price_p75"], is_unit_price=False),
+                            "p90": format_price(entry["total_price_p90"], is_unit_price=False),
+                        },
+                        {
+                            "Metric": f"Unit price ({unit_label})",
+                            "p25": format_price(entry["unit_price_p25"]),
+                            "p50": format_price(entry["unit_price_p50"]),
+                            "p75": format_price(entry["unit_price_p75"]),
+                            "p90": format_price(entry["unit_price_p90"]),
+                        },
+                    ])
+                    st.dataframe(pct_df, hide_index=True, width="stretch")
+
+            # Flat summary table for export
+            for entry in snapshot["municipalities"]:
+                summary_rows.append({
+                    "Municipality": entry.get("municipality_name") or entry["municipality_code"],
+                    "Code": entry["municipality_code"],
+                    "Transactions": entry["transaction_count"],
+                    "Total p25": entry["total_price_p25"],
+                    "Total p50": entry["total_price_p50"],
+                    "Total p75": entry["total_price_p75"],
+                    "Total p90": entry["total_price_p90"],
+                    "Unit p25": entry["unit_price_p25"],
+                    "Unit p50": entry["unit_price_p50"],
+                    "Unit p75": entry["unit_price_p75"],
+                    "Unit p90": entry["unit_price_p90"],
+                    "Avg area (m2)": entry["avg_area_m2"],
+                    "Low sample": (entry["transaction_count"] or 0) < low_sample_threshold,
+                })
+
+            summary_df = pd.DataFrame(summary_rows)
+
+            st.subheader("Snapshot Summary")
+            st.dataframe(
+                summary_df.style.format(
+                    {
+                        "Transactions": "{:,.0f}",
+                        **{c: "{:,.0f}" for c in summary_df.columns if c.startswith(("Total", "Unit"))},
+                        "Avg area (m2)": "{:.1f}",
+                    },
+                    na_rep="N/A",
+                ),
+                width="stretch",
+            )
+
+            csv_data = summary_df.to_csv(index=False)
+            st.download_button(
+                label="📥 Download CSV",
+                data=csv_data,
+                file_name=f"area_snapshot_{'+'.join(snapshot_codes)}.csv",
+                mime="text/csv"
+            )
+
+            # Per-municipality breakdowns
+            st.subheader("Segments by Municipality")
+            st.caption("Rows are property-type segments (as recorded by MLIT) within each compared area.")
+            for entry in snapshot["municipalities"]:
+                name = entry.get("municipality_name") or entry["municipality_code"]
+                segs = entry.get("segments") or []
+                if not segs:
+                    continue
+                seg_df = pd.DataFrame(segs)
+                seg_display = pd.DataFrame({
+                    "Municipality": name,
+                    "Segment": seg_df["segment"],
+                    "Transactions": seg_df["transaction_count"],
+                    "Median total": seg_df["total_price_p50"].map(lambda v: format_price(v, is_unit_price=False)),
+                    f"Median unit ({unit_label})": seg_df["unit_price_p50"].map(format_price),
+                    "Low sample": seg_df["transaction_count"].map(lambda c: (c or 0) < low_sample_threshold),
+                })
+                with st.expander(f"📦 {name} — segments ({len(segs)})"):
+                    st.dataframe(seg_display, width="stretch", hide_index=True)
+
+            st.subheader(f"Condo Size Bands ({CONDO_PROPERTY_TYPE})")
+            bands_any = False
+            for entry in snapshot["municipalities"]:
+                name = entry.get("municipality_name") or entry["municipality_code"]
+                bands = entry.get("size_bands") or []
+                if not bands:
+                    continue
+                bands_any = True
+                band_df = pd.DataFrame(bands)
+                band_display = pd.DataFrame({
+                    "Size band": band_df["size_band"],
+                    "Transactions": band_df["transaction_count"],
+                    "Median total": band_df["total_price_p50"].map(lambda v: format_price(v, is_unit_price=False)),
+                    f"Median unit ({unit_label})": band_df["unit_price_p50"].map(format_price),
+                    "Low sample": band_df["transaction_count"].map(lambda c: (c or 0) < low_sample_threshold),
+                })
+                with st.expander(f"📐 {name} — size bands ({len(bands)})",
+                                 expanded=len(snapshot["municipalities"]) == 1):
+                    st.dataframe(band_display, width="stretch", hide_index=True)
+            if not bands_any:
+                st.info("No condominium size-band data for the current selection and filters.")
+
+            # Top districts across the compared municipalities
+            st.subheader(f"Top Districts by Median Unit Price ({unit_label})")
+            districts_rows = snapshot.get("top_districts") or []
+            if districts_rows:
+                dist_df = pd.DataFrame(districts_rows)
+                dist_display = pd.DataFrame({
+                    "Municipality": dist_df["municipality_name"],
+                    "District": dist_df["district_name"],
+                    "Transactions": dist_df["transaction_count"],
+                    f"Median unit ({unit_label})": dist_df["unit_price_p50"].map(format_price),
+                    "Low sample": dist_df["transaction_count"].map(lambda c: (c or 0) < low_sample_threshold),
+                })
+                st.dataframe(dist_display, width="stretch", hide_index=True)
+            else:
+                st.info("No district-level data for the current selection and filters.")
+
 # ============= COHORTS TAB =============
 elif selected_tab == "📊 Cohorts":
     st.subheader("Cohort Analysis")
@@ -3300,6 +3634,7 @@ elif selected_tab == "🔌 API & MCP":
         - `/price-trends?...` — Time series
         - `/price-by-district?...` — Compare neighborhoods
         - `/median-price?...` — Latest stats
+        - `/area-snapshot?...` — One-stop percentile snapshot (1-3 municipalities)
 
         **Example:**
         ```bash
@@ -3339,6 +3674,7 @@ elif selected_tab == "🔌 API & MCP":
         - get_price_trends
         - get_district_prices
         - get_median_price
+        - get_area_snapshot
         - list_prefectures
         - list_municipalities
         - get_statistics
